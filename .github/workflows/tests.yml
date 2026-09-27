@@ -1,0 +1,21 @@
+name: Python core tests
+on:
+  push:
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.11', '3.13']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Validate Python sources
+        run: python -m compileall -q nitro_control tests
+      - name: Run offline sensor tests
+        run: python -m unittest discover -s tests -v
+      - name: Validate demo JSON without GUI dependencies
+        run: python -m nitro_control --demo --once | python -m json.tool > /dev/null
