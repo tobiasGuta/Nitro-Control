@@ -11,7 +11,7 @@ from .hardware import HardwareReader
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Nitro Control — read-only Fedora hardware dashboard")
+    parser = argparse.ArgumentParser(description="Nitro Control — Fedora hardware dashboard")
     parser.add_argument("--demo", action="store_true", help="show clearly labeled example readings")
     parser.add_argument("--once", action="store_true", help="print a single JSON snapshot, without GTK")
     parser.add_argument("--version", action="version", version=f"Nitro Control {__version__}")
