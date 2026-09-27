@@ -25,7 +25,7 @@ cat > "$desktop_dir/io.github.tobiasguta.NitroControl.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=Nitro Control
-Comment=Read-only Acer Nitro hardware dashboard
+Comment=Acer Nitro dashboard and desktop power modes
 Exec=$bin_dir/nitro-control
 Icon=utilities-system-monitor
 Terminal=false
