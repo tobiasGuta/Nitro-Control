@@ -15,6 +15,7 @@ from . import APP_ID, __version__
 from .demo import demo_snapshot
 from .hardware import HardwareReader
 from .models import Snapshot
+from .profiles import DISPLAY, PowerProfileController, PowerState
 
 REFRESH_SECONDS = 4
 
@@ -87,6 +88,13 @@ class NitroWindow(Adw.ApplicationWindow):
         self.add_css_class("nitro-window")
         self._demo = demo
         self._reader = HardwareReader()
+        self._power = PowerProfileController()
+        self._power_state: PowerState | None = None
+        self._power_choices: tuple[str, ...] = ()
+        self._power_busy = False
+        self._power_feedback: str | None = None
+        self._power_feedback_profile: str | None = None
+        self._rendering_power = False
         self._busy = False
         self._closed = False
         self.connect("close-request", self._on_close)
@@ -160,14 +168,38 @@ class NitroWindow(Adw.ApplicationWindow):
 
         profile_group = Adw.PreferencesGroup(title="Performance", description="Read-only firmware and TuneD state. No profile switching in v0.1.")
         self.profile_rows = {}
-        for key, title in (("firmware", "Acer firmware profile"), ("choices", "Available profiles"),
-                           ("tuned", "TuneD profile")):
+        for key, title in (("firmware", "Acer firmware profile"), ("tuned", "TuneD profile")):
             row, val = _readout_row(title)
-            if key == "choices":
-                row.set_subtitle("Profiles exposed by your system firmware")
             profile_group.add(row)
             self.profile_rows[key] = val
+        # Long firmware names belong in a wrapping subtitle, not a truncated suffix.
+        self.firmware_choices_row = Adw.ActionRow(title="Firmware-supported profiles")
+        self.firmware_choices_row.set_subtitle_lines(0)
+        self.firmware_choices_row.set_subtitle("Checking firmware capabilities…")
+        profile_group.add(self.firmware_choices_row)
         content.append(profile_group)
+
+        power_group = Adw.PreferencesGroup(
+            title="Desktop power mode",
+            description="Use Fedora's standard power-profile service. These three GNOME modes are not the five raw Acer firmware modes.",
+        )
+        self.power_combo = Adw.ComboRow(title="GNOME power mode", subtitle="Choose a mode, then apply it")
+        self.power_combo.set_model(Gtk.StringList.new(["Unavailable"]))
+        self.power_combo.set_sensitive(False)
+        self.power_combo.connect("notify::selected", self._on_power_selection)
+        power_group.add(self.power_combo)
+        apply_row = Adw.ActionRow(title="Apply selected mode", subtitle="Requires confirmation; the system may ask for authorization")
+        self.power_apply = Gtk.Button(label="Apply")
+        self.power_apply.add_css_class("suggested-action")
+        self.power_apply.set_valign(Gtk.Align.CENTER)
+        self.power_apply.set_sensitive(False)
+        self.power_apply.connect("clicked", self._request_power_change)
+        apply_row.add_suffix(self.power_apply)
+        power_group.add(apply_row)
+        self.power_status = Adw.ActionRow(title="Status", subtitle="Checking power-profile service…")
+        self.power_status.set_subtitle_lines(0)
+        power_group.add(self.power_status)
+        content.append(power_group)
 
         cooling_group = Adw.PreferencesGroup(title="Cooling", description="Fan readings are passive. Firmware remains in control of the fans.")
         self.fan_rows = []
@@ -193,7 +225,7 @@ class NitroWindow(Adw.ApplicationWindow):
         rgb_group.add(driver_row)
         content.append(rgb_group)
 
-        note = _label("READ-ONLY  •  No fan, firmware, RGB, or kernel writes  •  Nitro Control v" + __version__, css="info-note")
+        note = _label("Fans and RGB remain read-only  •  Desktop power mode changes require confirmation  •  Nitro Control v" + __version__, css="info-note")
         note.set_wrap(True)
         content.append(note)
 
@@ -208,7 +240,7 @@ class NitroWindow(Adw.ApplicationWindow):
         return True
 
     def _request_refresh(self) -> None:
-        if self._busy or self._closed:
+        if self._busy or self._closed or self._power_busy:
             return
         self._busy = True
         self.status_label.set_text("Reading sensors…" if not self._demo else "DEMO MODE • sample data")
@@ -221,9 +253,16 @@ class NitroWindow(Adw.ApplicationWindow):
         except Exception as exc:  # A sensor failure must not terminate the GUI.
             result = None
             error = f"Unable to refresh: {type(exc).__name__}: {exc}"
-        GLib.idle_add(self._finish_refresh, result, error)
+        try:
+            state = PowerState("balanced", ("power-saver", "balanced", "performance")) if self._demo else self._power.read()
+            power_error = None
+        except Exception as exc:
+            state = None
+            power_error = str(exc)
+        GLib.idle_add(self._finish_refresh, result, error, state, power_error)
 
-    def _finish_refresh(self, snapshot: Snapshot | None, error: str | None) -> bool:
+    def _finish_refresh(self, snapshot: Snapshot | None, error: str | None,
+                        state: PowerState | None, power_error: str | None) -> bool:
         self._busy = False
         if self._closed:
             return False
@@ -232,6 +271,102 @@ class NitroWindow(Adw.ApplicationWindow):
             self.status_icon.set_from_icon_name("dialog-warning-symbolic")
         elif snapshot:
             self._render(snapshot)
+        self._render_power(state, power_error)
+        return False
+
+    def _selected_power(self) -> str | None:
+        index = self.power_combo.get_selected()
+        return self._power_choices[index] if 0 <= index < len(self._power_choices) else None
+
+    def _on_power_selection(self, *_args) -> None:
+        if not self._rendering_power:
+            self._power_feedback = None
+            self._power_feedback_profile = None
+        self._sync_power_button()
+
+    def _sync_power_button(self) -> None:
+        chosen = self._selected_power()
+        self.power_apply.set_sensitive(
+            not self._demo and not self._power_busy and self._power_state is not None
+            and chosen is not None and chosen != self._power_state.active
+        )
+
+    def _render_power(self, state: PowerState | None, error: str | None) -> None:
+        prior = self._selected_power()
+        old_active = self._power_state.active if self._power_state else None
+        self._power_state = state
+        self._rendering_power = True
+        try:
+            if state is None:
+                self._power_choices = ()
+                self.power_combo.set_model(Gtk.StringList.new(["Unavailable"]))
+                self.power_combo.set_sensitive(False)
+                self.power_status.set_subtitle(error or "Power-profile service unavailable")
+            else:
+                if self._power_feedback_profile and state.active != self._power_feedback_profile:
+                    self._power_feedback = None
+                    self._power_feedback_profile = None
+                if state.choices != self._power_choices:
+                    self._power_choices = state.choices
+                    self.power_combo.set_model(Gtk.StringList.new([DISPLAY[p] for p in state.choices]))
+                # Keep a deliberate uncommitted selection through background refreshes.
+                chosen = prior if prior in state.choices and prior != old_active else state.active
+                self.power_combo.set_selected(state.choices.index(chosen))
+                self.power_combo.set_sensitive(not self._demo and not self._power_busy)
+                self.power_status.set_subtitle(
+                    "Demo only — power changes disabled" if self._demo else
+                    (self._power_feedback or f"System reports {DISPLAY[state.active]} active")
+                )
+        finally:
+            self._rendering_power = False
+        self._sync_power_button()
+
+    def _request_power_change(self, *_args) -> None:
+        chosen = self._selected_power()
+        if (self._demo or self._power_busy or self._power_state is None or
+                chosen is None or chosen == self._power_state.active):
+            return
+        dialog = Adw.AlertDialog.new(
+            f"Switch to {DISPLAY[chosen]}?",
+            "Fedora's power-profile service will handle the change. "
+            "Fan speeds and RGB will remain under their existing drivers."
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("apply", "Apply")
+        dialog.set_response_appearance("apply", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._confirm_power_change, chosen)
+        dialog.present(self)
+
+    def _confirm_power_change(self, _dialog, response: str, chosen: str) -> None:
+        if response != "apply" or self._closed or self._power_busy:
+            return
+        self._power_busy = True
+        self.power_combo.set_sensitive(False)
+        self._sync_power_button()
+        self.power_status.set_subtitle(f"Requesting {DISPLAY[chosen]}…")
+        Thread(target=self._apply_power_background, args=(chosen,), daemon=True,
+               name="nitro-power-mode").start()
+
+    def _apply_power_background(self, chosen: str) -> None:
+        try:
+            state = self._power.apply(chosen)
+            error = None
+        except Exception as exc:
+            state = None
+            error = str(exc)
+        GLib.idle_add(self._finish_power_change, state, error)
+
+    def _finish_power_change(self, state: PowerState | None, error: str | None) -> bool:
+        self._power_busy = False
+        if self._closed:
+            return False
+        self._power_feedback = (f"Verified: {DISPLAY[state.active]} is active" if state else
+                                f"Power mode unchanged or unverified: {error}")
+        self._power_feedback_profile = state.active if state else None
+        self._render_power(state or self._power_state, None)
+        self._request_refresh()
         return False
 
     def _render(self, data: Snapshot) -> None:
@@ -240,7 +375,7 @@ class NitroWindow(Adw.ApplicationWindow):
             sampled = datetime.fromisoformat(data.sampled_at).strftime("%H:%M:%S")
         except ValueError:
             sampled = data.sampled_at
-        self.status_label.set_text(("DEMO • " if data.demo else "Live • ") + f"Updated {sampled} • read-only")
+        self.status_label.set_text(("DEMO • " if data.demo else "Live • ") + f"Updated {sampled} • sensors read-only")
         self.status_icon.set_from_icon_name("media-playback-start-symbolic" if data.demo else "emblem-ok-symbolic")
         self.cpu_value.set_text(_temp(data.cpu_celsius))
         self.cpu_hint.set_text("Identified CPU package sensor" if data.cpu_celsius is not None else "No identified CPU package sensor")
@@ -271,9 +406,8 @@ class NitroWindow(Adw.ApplicationWindow):
                 val.set_text("Unavailable")
 
         self.profile_rows["firmware"].set_text(data.firmware_profile or "Unavailable")
-        choices = ", ".join(data.firmware_profile_choices) or "Unavailable"
-        self.profile_rows["choices"].set_text(choices)
-        self.profile_rows["choices"].set_tooltip_text(choices)
+        choices = "  •  ".join(data.firmware_profile_choices) or "Unavailable"
+        self.firmware_choices_row.set_subtitle(choices)
         self.profile_rows["tuned"].set_text(data.tuned_profile or "Unavailable")
         self._update_sensor_rows(self.fan_rows, [
             (fan.name, fan.control_mode + " control", _number(fan.rpm, "RPM")) for fan in data.fans
