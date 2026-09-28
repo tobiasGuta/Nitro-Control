@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
+import json
 import sys
 
 from . import __version__
@@ -14,8 +16,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Nitro Control — Fedora hardware dashboard")
     parser.add_argument("--demo", action="store_true", help="show clearly labeled example readings")
     parser.add_argument("--once", action="store_true", help="print a single JSON snapshot, without GTK")
+    parser.add_argument("--rgb-probe", action="store_true", help="read-only RGB backend probe (JSON; no GTK)")
     parser.add_argument("--version", action="version", version=f"Nitro Control {__version__}")
     args = parser.parse_args(argv)
+    if args.rgb_probe:
+        from .rgb_hardware import RGBHardware
+        print(json.dumps(asdict(RGBHardware().probe()), indent=2))
+        return 0
     if args.once:
         print((demo_snapshot() if args.demo else HardwareReader().collect()).to_json())
         return 0

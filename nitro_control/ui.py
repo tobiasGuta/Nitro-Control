@@ -17,6 +17,8 @@ from .hardware import HardwareReader
 from .models import Snapshot
 from .profiles import DISPLAY, PowerProfileController, PowerState
 from .rgb import LightingPlan, PRESETS, PreviewBackend
+from .rgb_client import RGBClient
+from .rgb_hardware import RGBHardware, RGBCapability
 
 REFRESH_SECONDS = 4
 
@@ -90,6 +92,10 @@ class NitroWindow(Adw.ApplicationWindow):
         self._demo = demo
         self._reader = HardwareReader()
         self._rgb_preview = PreviewBackend()
+        self._rgb_hardware = RGBHardware()
+        self._rgb_client = RGBClient()
+        self._rgb_status = RGBCapability("none", "Unavailable", False, "Not checked")
+        self._rgb_hw_busy = False
         self._rgb_rendering = False
         self._power = PowerProfileController()
         self._power_state: PowerState | None = None
@@ -283,10 +289,24 @@ class NitroWindow(Adw.ApplicationWindow):
         self.rgb_preview_status = Adw.ActionRow(title="Preview status", subtitle="Nothing sent to the keyboard")
         self.rgb_preview_status.set_subtitle_lines(0)
         editor.add(self.rgb_preview_status)
+        physical_row = Adw.ActionRow(
+            title="Physical keyboard", subtitle="Optional root-owned helper; changes require separate confirmation and authentication"
+        )
+        self.rgb_apply_hardware = Gtk.Button(label="Apply to keyboard")
+        self.rgb_apply_hardware.set_valign(Gtk.Align.CENTER)
+        self.rgb_apply_hardware.set_sensitive(False)
+        self.rgb_apply_hardware.connect("clicked", self._request_rgb_hardware)
+        physical_row.add_suffix(self.rgb_apply_hardware)
+        editor.add(physical_row)
+        self.rgb_hardware_status = Adw.ActionRow(
+            title="Hardware status", subtitle="Checking for a supported RGB writer…"
+        )
+        self.rgb_hardware_status.set_subtitle_lines(0)
+        editor.add(self.rgb_hardware_status)
         content.append(editor)
         self._set_rgb_editor(self._rgb_preview.current())
 
-        note = _label("Fans and physical RGB remain read-only  •  RGB studio is a simulation  •  Desktop power mode changes require confirmation  •  Nitro Control v" + __version__, css="info-note")
+        note = _label("Fans remain read-only  •  RGB preview is simulated; physical RGB needs a supported driver and optional administrator-authorized helper  •  Nitro Control v" + __version__, css="info-note")
         note.set_wrap(True)
         content.append(note)
 
@@ -480,10 +500,20 @@ class NitroWindow(Adw.ApplicationWindow):
         self.rgb_value.set_text("Detected" if data.rgb.present else "Not detected")
         self.rgb_row.set_subtitle(data.rgb.interface or "No matching WMI instance exposed")
         self.driver_value.set_text(data.rgb.driver or "None bound")
-        self.rgb_capability.set_subtitle(
-            "Preview only — no compatible RGB writer has been validated"
-            if data.rgb.present else "No matching Acer RGB WMI device detected; preview still works"
+        self._rgb_status = self._rgb_hardware.probe() if not self._demo else RGBCapability(
+            "none", "Demo only", False, "Demo mode cannot make physical keyboard changes"
         )
+        self.rgb_capability.set_subtitle(self._rgb_status.detail)
+        if not self._rgb_status.available:
+            hw_detail = self._rgb_status.detail
+        elif not self._rgb_client.ready():
+            hw_detail = (f"{self._rgb_status.description} detected; optional root-owned helper not installed. "
+                         "See README for explicit installation.")
+        else:
+            hw_detail = f"{self._rgb_status.description} available; Apply requires confirmation and authentication"
+        if not self._rgb_hw_busy:
+            self.rgb_hardware_status.set_subtitle(hw_detail)
+        self._sync_rgb_hardware_button()
 
     def _set_rgb_editor(self, plan: LightingPlan) -> None:
         self._rgb_rendering = True
@@ -516,6 +546,7 @@ class NitroWindow(Adw.ApplicationWindow):
         self.rgb_preview_status.set_subtitle(
             f"Draft: {plan.brightness}% brightness • not applied to hardware"
         )
+        self._sync_rgb_hardware_button()
 
     def _load_rgb_preset(self, *_args) -> None:
         names = list(PRESETS)
@@ -532,6 +563,58 @@ class NitroWindow(Adw.ApplicationWindow):
     def _reset_rgb_preview(self, *_args) -> None:
         self._set_rgb_editor(self._rgb_preview.reset())
         self.rgb_preview_status.set_subtitle("Preview reset to Midnight; hardware unchanged")
+
+    def _sync_rgb_hardware_button(self) -> None:
+        self.rgb_apply_hardware.set_sensitive(
+            not self._demo and not self._rgb_hw_busy and
+            self._rgb_status.available and self._rgb_client.ready()
+        )
+
+    def _request_rgb_hardware(self, *_args) -> None:
+        if self._demo or self._rgb_hw_busy or not self._rgb_status.available or not self._rgb_client.ready():
+            return
+        plan = self._rgb_draft()
+        dialog = Adw.AlertDialog.new(
+            "Apply these colors to your physical keyboard?",
+            "This makes an actual hardware change through the detected RGB driver. "
+            "Administrator authentication may be required. Sysfs readback does not prove the LEDs changed: "
+            "visually inspect the keyboard afterward. No fans or power settings will be changed."
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("apply", "Apply to keyboard")
+        dialog.set_response_appearance("apply", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._confirm_rgb_hardware, plan)
+        dialog.present(self)
+
+    def _confirm_rgb_hardware(self, _dialog, response: str, plan: LightingPlan) -> None:
+        if response != "apply" or self._closed or self._rgb_hw_busy:
+            return
+        self._rgb_hw_busy = True
+        self._sync_rgb_hardware_button()
+        self.rgb_hardware_status.set_subtitle("Authorizing one keyboard RGB change…")
+        Thread(target=self._apply_rgb_hardware_background, args=(plan,), daemon=True,
+               name="nitro-rgb-apply").start()
+
+    def _apply_rgb_hardware_background(self, plan: LightingPlan) -> None:
+        try:
+            message = self._rgb_client.apply(plan)
+            error = None
+        except Exception as exc:
+            message, error = None, str(exc)
+        GLib.idle_add(self._finish_rgb_hardware, message, error)
+
+    def _finish_rgb_hardware(self, message: str | None, error: str | None) -> bool:
+        self._rgb_hw_busy = False
+        if self._closed:
+            return False
+        self.rgb_hardware_status.set_subtitle(
+            f"Hardware change failed or unverified: {error}" if error else message or "No verified sysfs response"
+        )
+        self._rgb_status = self._rgb_hardware.probe()
+        self._sync_rgb_hardware_button()
+        return False
 
     @staticmethod
     def _update_sensor_rows(rows: list[tuple[Adw.ActionRow, Gtk.Label]],

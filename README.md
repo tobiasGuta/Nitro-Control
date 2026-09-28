@@ -2,27 +2,23 @@
 
 **A native GNOME dashboard for Acer Nitro laptops, initially tested against the AN515-58 interface.**
 
-Version 0.3.0-preview.1 • Python 3.11+ • MIT license
+Version 0.3.0-preview.2 • Python 3.11+ • MIT license
 
-Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. v0.2.0 adds optional desktop power-mode switching through Fedora’s existing system D-Bus service. The application does **not** write fan PWM, sysfs, or WMI RGB commands, modify kernel modules, or run its GUI as root.
+Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3.0-preview.2 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. It never replaces drivers, calls WMI directly, changes fan PWM, or runs the GUI as root.
 
-## v0.3 preview: in-memory four-zone lighting studio
+## v0.3: RGB studio and gated physical backend
 
-The user-confirmed AN515-58 has a physical four-zone RGB keyboard, and Linux
-exposes the Acer RGB WMI GUID (with an instance suffix). **There is currently no
-bound RGB driver or multicolor keyboard LED interface on the reference Fedora
-installation.** The GUID alone is *not* a safe or usable writing endpoint.
+The reference AN515-58 has a user-confirmed four-zone RGB keyboard, and Linux
+exposes its numbered RGB WMI GUID. **No RGB writer is currently exposed on this
+Fedora 44 kernel**, so the physical Apply button will remain disabled. The GUID
+alone does not provide a safe control endpoint.
 
-This preview adds four native GTK color selectors, brightness, built-in presets,
-validation, and Apply preview/Reset controls. **The preview backend is strictly
-in-memory: it cannot change the physical keyboard, install modules, send WMI
-commands, or write sysfs.** Nothing is auto-applied at login. Power-mode controls
-from v0.2 still work independently. Color choices are not persisted yet.
-
-Only after a suitable driver/interface is present and verified on the real
-machine will a separate, explicitly gated physical RGB adapter be considered.
-Do not manually bind an unknown WMI driver or replace the working `acer_wmi` for
-this preview.
+The studio has four GTK color selectors, brightness, presets, a simulated
+Apply preview/Reset, and an optional physical Apply button. Preview remains
+strictly in-memory. A separate, root-owned one-shot helper can be installed
+explicitly *after* a supported native LED or Linuwu sysfs endpoint exists. The
+GUI asks confirmation and Polkit authorization for each physical change. No
+color persistence, auto-restore, or module installation yet.
 
 ## v0.2.0 capabilities
 
@@ -96,8 +92,8 @@ Tests use a disposable simulated sysfs tree shaped like the AN515-58, plus an in
 ## Safety and privacy
 
 - Hardware monitoring is read-only and runs as your normal desktop user. Power-mode changes occur only after explicit user confirmation.
-- No telemetry, network requests, external extensions, custom drivers, root GUI, fan curves, or EC/WMI command calls. The RGB preview is in-memory only.
-- Only the standard power-profiles D-Bus `ActiveProfile` property is writable. Fedora’s system service is responsible for authorization and its own hardware mapping; Nitro Control never invokes `sudo`/`pkexec` or stores a privileged helper in a user-writable directory.
+- No telemetry, network requests, custom drivers, root GUI, fan curves, or direct EC/WMI calls. The RGB preview is in-memory only; the optional helper writes strictly known RGB sysfs attributes.
+- The desktop power-mode operation uses only the standard D-Bus `ActiveProfile` property. The optional RGB path invokes a **root-owned** one-shot helper through `pkexec`; nothing privileged is imported from the user-writable GUI installation.
 - Power Saver, Balanced, and Performance are desktop modes. The five Acer firmware-supported names remain read-only; do not assume a one-to-one mapping.
 - JSON output includes device model and measurements, not hostname, machine ID, MAC address, or exact filesystem paths.
 - Linux `pwmN_enable >= 2` conventionally means automatic control. The app **reports** this without writing `pwmN` or inferring a percentage from its value.
@@ -112,6 +108,9 @@ nitro_control/
   hardware.py       isolated read-only hardware adapters
   profiles.py       optional desktop power-mode service with validation
   rgb.py            validated four-zone plans and in-memory preview backend
+  rgb_hardware.py   exact-model, exact-endpoint sysfs RGB adapters
+  rgb_client.py     unprivileged client for optional Polkit helper
+  rgb_privileged.py root-owned, one-shot RGB entry point
   models.py         typed immutable snapshots
   demo.py           explicitly labeled example data
 scripts/            per-user install and uninstall
@@ -121,8 +120,8 @@ scripts/            per-user install and uninstall
 ## Roadmap
 
 - v0.2: Desktop power-mode switching through the standard system service, with confirmation.
-- v0.3 preview: Four-zone simulated lighting editor and validation (no hardware writes).
-- Later v0.3 hardware milestone: Validate a genuine RGB driver and permission model before enabling physical lighting.
+- v0.3 preview.2: Simulated lighting editor, read-only RGB probe, gated hardware adapters and optional Polkit helper.
+- Next: Validate a real driver interface and actual keyboard behavior on the reference Fedora laptop.
 - Later: Packaging and broader hardware testing. No requirement to replace a functioning native `acer_wmi` driver.
 
 ## References
@@ -139,3 +138,57 @@ scripts/            per-user install and uninstall
 ## License
 
 MIT. See `LICENSE`.
+
+
+## Optional physical RGB backend (v0.3.0-preview.2)
+
+The four-zone studio continues working **without any new driver or privilege**. A
+**read-only** diagnostic checks your actual hardware:
+
+```bash
+/usr/bin/python3 -m nitro_control --rgb-probe
+```
+
+On the original reference Nitro AN515-58 with Fedora 44 kernel 7.2.7, the
+numbered Acer RGB WMI GUID exists but no RGB writer is exposed. The expected
+result is `"available": false`: **the physical Apply button remains disabled**.
+This is a capability gap, not an application crash. Do not mistake a visible WMI
+GUID for a driver that can safely accept keyboard commands.
+
+The optional adapters recognize *only* these existing, documented sysfs
+interfaces, on the exact model and WMI GUID:
+
+- Four native `acer-wmi::kbd_backlight_1` through `_4` Linux multicolor LED
+  devices. Each must have validated `multi_index`, `multi_intensity`,
+  `brightness`, and `max_brightness` attributes.
+- Linuwu Sense's documented `four_zoned_kb/per_zone_mode` endpoint, accepting
+  exactly four RGB hex colors and brightness.
+
+Native multicolor LEDs are preferred if both are present. Unsupported, partial,
+malformed, or absent backends fail closed. No unknown GUID calls, direct EC
+access, kernel compilation, module removal, fan writes, or automatic driver
+installation are included. Fan monitoring and desktop power modes are unchanged.
+
+**Once a supported writer exists**, an optional administrator-owned helper may
+be installed *explicitly* from a reviewed source checkout:
+
+```bash
+sudo ./scripts/install-rgb-helper-fedora.sh
+```
+
+This copies a minimal, standalone Python helper and dependencies into root-owned
+`/usr/local/libexec` and installs a dedicated PolicyKit action. It never imports
+modules from the user's writable installation. The GUI still runs as your user,
+requires a separate confirmation per hardware change, and invokes the fixed
+helper through `pkexec`. Authorization is `auth_admin` for an active session;
+errors or denied authorization are displayed as failures. To remove it:
+
+```bash
+sudo ./scripts/uninstall-rgb-helper-fedora.sh
+```
+
+A successful sysfs readback is only **software-level verification**: visually
+confirm the keyboard really changed. Some firmware reports accepted values
+without changing LEDs. There is no auto-restore on reboot or suspend/resume yet.
+Read [the hardware safety and validation guide](docs/RGB-HARDWARE.md) before
+trying a third-party driver or kernel patch.
