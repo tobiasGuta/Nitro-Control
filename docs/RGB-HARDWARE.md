@@ -16,7 +16,10 @@ A temporary `insmod` test exposed `four_zoned_kb/per_zone_mode`; a uniform
 low-brightness green test and a red/green/blue/purple four-zone test both
 visibly worked. The original `393651,393651,393651,393651,100` lighting was
 restored and the stock `acer_wmi` was reloaded. Subsequent fan readings,
-`balanced` platform profile, and NVIDIA readings were present.
+`balanced` platform profile, and NVIDIA readings were present. A later GUI
+session restored lighting and the stock module but ended in `low-power` firmware
+profile; that may reflect an intentional desktop power-mode change and is not
+proof that the profile was preserved through the session.
 
 These results establish this single machine's temporary RGB behavior, **not**
 suspend/resume, reboot, new-kernel, or permanent-driver compatibility. The
@@ -49,8 +52,15 @@ session, saves existing lighting, probes the Linuwu endpoint, launches the
 unprivileged application, and restores lighting and stock `acer_wmi` on exit.
 The GUI time limit is four minutes. It cannot recover from a kernel crash,
 hard kill, or sudden power loss; a normal reboot should load the stock module
-because no persistent module configuration changes are made. A Polkit prompt
-is required for the actual GUI write. Inspect the physical keyboard.
+because no persistent module configuration changes are made. By default,
+each actual GUI write requires Polkit administrator authentication. To opt into
+a short-lived authorization cache, reinstall the helper with
+`sudo ./scripts/install-rgb-helper-fedora.sh --cache-authorization`. This changes
+only the dedicated Nitro Control RGB action to `auth_admin_keep` (typically
+about five minutes); per-write GUI confirmation and strict helper validation
+remain. Cache reuse is not guaranteed on every Polkit implementation. Restore
+the prompt-every-time policy by reinstalling without the option. Inspect the
+physical keyboard.
 
 After the test, inspect `lsmod`, the platform profile and fan sensors.
 Only after this GUI test passes should permanent installation be considered.
@@ -94,8 +104,9 @@ sysfs.
 
 In both cases the helper requires the exact model name and a numbered RGB WMI
 interface. Only the root-owned helper writes; the desktop process never runs as
-root. Physical Apply requires a separate user confirmation and PolicyKit
-administrator authorization on every invocation.
+root. Physical Apply requires a separate user confirmation every time; the
+helper requires administrator authorization, which may be briefly cached only
+when explicitly opted into `auth_admin_keep`.
 
 ## Research references
 

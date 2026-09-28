@@ -17,7 +17,8 @@ The studio has four GTK color selectors, brightness, presets, a simulated
 Apply preview/Reset, and an optional physical Apply button. Preview remains
 strictly in-memory. A separate, root-owned one-shot helper can be installed
 explicitly *after* a supported native LED or Linuwu sysfs endpoint exists. The
-GUI asks confirmation and Polkit authorization for each physical change. No
+GUI asks confirmation for each physical change; the optional Polkit helper
+requires administrator authorization (with opt-in short-lived caching). No
 color persistence, auto-restore, or module installation yet.
 
 ## v0.2.0 capabilities
@@ -180,8 +181,21 @@ This copies a minimal, standalone Python helper and dependencies into root-owned
 `/usr/local/libexec` and installs a dedicated PolicyKit action. It never imports
 modules from the user's writable installation. The GUI still runs as your user,
 requires a separate confirmation per hardware change, and invokes the fixed
-helper through `pkexec`. Authorization is `auth_admin` for an active session;
-errors or denied authorization are displayed as failures. To remove it:
+helper through `pkexec`. By default, the action uses `auth_admin` and prompts on every hardware apply.
+For an explicit, short-lived Polkit authorization cache (typically about five
+minutes), reinstall the helper with:
+
+```bash
+sudo ./scripts/install-rgb-helper-fedora.sh --cache-authorization
+```
+
+This selects `auth_admin_keep` **only for Nitro Control's dedicated RGB action**;
+it is not permanent passwordless root access. The GUI still asks confirmation
+for every physical change, and the root helper continues to validate exact
+model, endpoint and four-zone input. Cache reuse depends on the running Polkit
+version/session; another password prompt may still occur. Return to a password
+on every change by reinstalling with no option. Errors or denied authorization
+are displayed as failures. To remove it:
 
 ```bash
 sudo ./scripts/uninstall-rgb-helper-fedora.sh

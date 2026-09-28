@@ -4,8 +4,19 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 if [[ ${EUID} -ne 0 ]]; then
-  echo 'Run explicitly as: sudo ./scripts/install-rgb-helper-fedora.sh' >&2
+  echo 'Run explicitly as: sudo ./scripts/install-rgb-helper-fedora.sh [--cache-authorization]' >&2
   exit 1
+fi
+# Default: ask for administrator credentials on every physical apply.
+# Explicit opt-in: Polkit may retain this action's authorization briefly (~5 minutes).
+case "${1:-}" in
+  '') authorization='auth_admin' ;;
+  --cache-authorization) authorization='auth_admin_keep' ;;
+  *) echo 'Usage: sudo ./scripts/install-rgb-helper-fedora.sh [--cache-authorization]' >&2; exit 2 ;;
+esac
+if [[ $# -gt 1 ]]; then
+  echo 'Usage: sudo ./scripts/install-rgb-helper-fedora.sh [--cache-authorization]' >&2
+  exit 2
 fi
 install -d -m 755 /usr/local/libexec/nitro-control-rgb/nitro_control
 for file in __init__.py rgb.py rgb_hardware.py rgb_privileged.py; do
@@ -21,7 +32,7 @@ PY
 chown root:root /usr/local/libexec/nitro-control-rgb-helper
 chmod 755 /usr/local/libexec/nitro-control-rgb-helper
 install -d -m 755 /usr/share/polkit-1/actions
-cat > /usr/share/polkit-1/actions/io.github.tobiasguta.NitroControl.rgb.policy <<'XML'
+cat > /usr/share/polkit-1/actions/io.github.tobiasguta.NitroControl.rgb.policy <<XML
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN" "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
 <policyconfig>
@@ -31,7 +42,7 @@ cat > /usr/share/polkit-1/actions/io.github.tobiasguta.NitroControl.rgb.policy <
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
-      <allow_active>auth_admin</allow_active>
+      <allow_active>${authorization}</allow_active>
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/nitro-control-rgb-helper</annotate>
   </action>
@@ -39,4 +50,4 @@ cat > /usr/share/polkit-1/actions/io.github.tobiasguta.NitroControl.rgb.policy <
 XML
 chown root:root /usr/share/polkit-1/actions/io.github.tobiasguta.NitroControl.rgb.policy
 chmod 644 /usr/share/polkit-1/actions/io.github.tobiasguta.NitroControl.rgb.policy
-echo 'Installed optional root-owned RGB helper. No kernel driver changes made.'
+echo "Installed optional root-owned RGB helper (${authorization}). No kernel driver changes made."
