@@ -226,21 +226,21 @@ class NitroWindow(Adw.ApplicationWindow):
             self.thermal_rows.append((row, val))
         content.append(thermal_group)
 
-        rgb_group = Adw.PreferencesGroup(title="Keyboard lighting", description="Capability detection only. RGB controls are reserved for a later, validated version.")
+        rgb_group = Adw.PreferencesGroup(title="Keyboard lighting", description="Physical Apply is available only when a compatible RGB driver and authorized helper are present.")
         rgb_row, self.rgb_value = _readout_row("Acer RGB WMI interface")
         self.rgb_row = rgb_row
         rgb_group.add(rgb_row)
         driver_row, self.driver_value = _readout_row("Bound RGB driver")
         rgb_group.add(driver_row)
-        self.rgb_capability = Adw.ActionRow(title="Physical lighting", subtitle="Preview only — no supported control endpoint is bound")
+        self.rgb_capability = Adw.ActionRow(title="Physical lighting", subtitle="Checking for a supported RGB control endpoint…")
         self.rgb_capability.set_subtitle_lines(0)
         rgb_group.add(self.rgb_capability)
         content.append(rgb_group)
 
-        # v0.3 preview editor: these controls have no hardware-writing path.
+        # The preview is in memory; physical Apply follows a separate authorized path.
         editor = Adw.PreferencesGroup(
-            title="Four-zone lighting studio (preview)",
-            description="Colors, brightness and presets are simulated in memory. Apply preview NEVER changes the physical keyboard.",
+            title="Four-zone lighting studio",
+            description="Edit four colors and brightness. Apply preview is simulated; Apply to keyboard is a separate, authorized hardware operation.",
         )
         self.rgb_preset = Adw.ComboRow(title="Preset", subtitle="Load a starting palette")
         self.rgb_preset.set_model(Gtk.StringList.new(list(PRESETS)))
@@ -267,7 +267,7 @@ class NitroWindow(Adw.ApplicationWindow):
             editor.add(row)
             self.rgb_colors.append(picker)
             self.rgb_swatches.append(swatch)
-        brightness_row = Adw.ActionRow(title="Brightness", subtitle="Preview value only; 0–100%")
+        brightness_row = Adw.ActionRow(title="Brightness", subtitle="0–100% for preview or physical Apply")
         self.rgb_brightness = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
         self.rgb_brightness.set_digits(0)
         self.rgb_brightness.set_size_request(220, -1)
@@ -306,7 +306,7 @@ class NitroWindow(Adw.ApplicationWindow):
         content.append(editor)
         self._set_rgb_editor(self._rgb_preview.current())
 
-        note = _label("Fans remain read-only  •  RGB preview is simulated; physical RGB needs a supported driver and optional administrator-authorized helper  •  Nitro Control v" + __version__, css="info-note")
+        note = _label("Fans remain read-only  •  Preview is simulated; physical Apply uses a detected driver and administrator-authorized helper  •  Nitro Control v" + __version__, css="info-note")
         note.set_wrap(True)
         content.append(note)
 

@@ -2,24 +2,21 @@
 
 **A native GNOME dashboard for Acer Nitro laptops, initially tested against the AN515-58 interface.**
 
-Version 0.3.0-preview.2 • Python 3.11+ • MIT license
+Version 0.3.0-preview.3 • Python 3.11+ • MIT license
 
-Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3.0-preview.2 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. It never replaces drivers, calls WMI directly, changes fan PWM, or runs the GUI as root.
+Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. It never replaces drivers, calls WMI directly, changes fan PWM, or runs the GUI as root.
 
 ## v0.3: RGB studio and gated physical backend
 
 The reference AN515-58 has a user-confirmed four-zone RGB keyboard, and Linux
-exposes its numbered RGB WMI GUID. **No RGB writer is currently exposed on this
-Fedora 44 kernel**, so the physical Apply button will remain disabled. The GUID
-alone does not provide a safe control endpoint.
+exposes its numbered RGB WMI GUID. The stock `acer_wmi` exposes no RGB writer, but this exact machine has now passed temporary physical four-zone tests with a locally patched Linuwu Sense driver. The physical Apply button is enabled only when a supported driver and the opt-in helper are actually present. The GUID alone does not provide a safe control endpoint.
 
 The studio has four GTK color selectors, brightness, presets, a simulated
 Apply preview/Reset, and an optional physical Apply button. Preview remains
 strictly in-memory. A separate, root-owned one-shot helper can be installed
 explicitly *after* a supported native LED or Linuwu sysfs endpoint exists. The
 GUI asks confirmation for each physical change; the optional Polkit helper
-requires administrator authorization (with opt-in short-lived caching). No
-color persistence, auto-restore, or module installation yet.
+requires administrator authorization (with opt-in short-lived caching). An optional kernel-pinned, on-demand module installation is available; boot autoload remains disabled by default.
 
 ## v0.2.0 capabilities
 
@@ -93,7 +90,7 @@ Tests use a disposable simulated sysfs tree shaped like the AN515-58, plus an in
 ## Safety and privacy
 
 - Hardware monitoring is read-only and runs as your normal desktop user. Power-mode changes occur only after explicit user confirmation.
-- No telemetry, network requests, custom drivers, root GUI, fan curves, or direct EC/WMI calls. The RGB preview is in-memory only; the optional helper writes strictly known RGB sysfs attributes.
+- No telemetry, network requests, root GUI, fan curves, or direct EC/WMI calls in the app. The RGB preview is in-memory only; the optional helper writes strictly known RGB sysfs attributes. The separately installed, experimental third-party Linuwu driver interacts with WMI; installing it is an explicit, reversible opt-in.
 - The desktop power-mode operation uses only the standard D-Bus `ActiveProfile` property. The optional RGB path invokes a **root-owned** one-shot helper through `pkexec`; nothing privileged is imported from the user-writable GUI installation.
 - Power Saver, Balanced, and Performance are desktop modes. The five Acer firmware-supported names remain read-only; do not assume a one-to-one mapping.
 - JSON output includes device model and measurements, not hostname, machine ID, MAC address, or exact filesystem paths.
@@ -122,7 +119,7 @@ scripts/            per-user install and uninstall
 
 - v0.2: Desktop power-mode switching through the standard system service, with confirmation.
 - v0.3 preview.2: Simulated lighting editor, read-only RGB probe, gated hardware adapters and optional Polkit helper.
-- Next: Validate a real driver interface and actual keyboard behavior on the reference Fedora laptop.
+- v0.3 preview.3: Physical four-zone and GUI integration validated on the reference laptop; add disabled-by-default, reversible on-demand Fedora driver service.
 - Later: Packaging and broader hardware testing. No requirement to replace a functioning native `acer_wmi` driver.
 
 ## References
@@ -150,11 +147,7 @@ The four-zone studio continues working **without any new driver or privilege**. 
 /usr/bin/python3 -m nitro_control --rgb-probe
 ```
 
-On the original reference Nitro AN515-58 with Fedora 44 kernel 7.2.7, the
-numbered Acer RGB WMI GUID exists but no RGB writer is exposed. The expected
-result is `"available": false`: **the physical Apply button remains disabled**.
-This is a capability gap, not an application crash. Do not mistake a visible WMI
-GUID for a driver that can safely accept keyboard commands.
+With the stock Acer kernel driver, the read-only RGB probe reports `"available": false`. The reference laptop now has a separately validated Linuwu Sense four-zone writer during explicitly managed sessions; with that driver loaded, the probe reports `"available": true`. Never mistake the WMI GUID alone for a writable endpoint.
 
 The optional adapters recognize *only* these existing, documented sysfs
 interfaces, on the exact model and WMI GUID:
@@ -167,8 +160,7 @@ interfaces, on the exact model and WMI GUID:
 
 Native multicolor LEDs are preferred if both are present. Unsupported, partial,
 malformed, or absent backends fail closed. No unknown GUID calls, direct EC
-access, kernel compilation, module removal, fan writes, or automatic driver
-installation are included. Fan monitoring and desktop power modes are unchanged.
+access, kernel compilation, fan writes, or automatic driver installation are included in the GUI. A separate opt-in installer provides an explicitly managed, current-kernel-only module session; fan monitoring and desktop power controls remain separate.
 
 **Once a supported writer exists**, an optional administrator-owned helper may
 be installed *explicitly* from a reviewed source checkout:
@@ -203,6 +195,23 @@ sudo ./scripts/uninstall-rgb-helper-fedora.sh
 
 A successful sysfs readback is only **software-level verification**: visually
 confirm the keyboard really changed. Some firmware reports accepted values
-without changing LEDs. There is no auto-restore on reboot or suspend/resume yet.
+without changing LEDs. The on-demand service restores the saved lighting on normal stop; suspend/resume and reboot behavior remain to be tested on hardware.
 Read [the hardware safety and validation guide](docs/RGB-HARDWARE.md) before
 trying a third-party driver or kernel patch.
+
+
+## On-demand physical RGB driver (v0.3.0-preview.3)
+
+After successful **temporary** uniform, independent-zone and GTK GUI tests on
+the reference AN515-58, Nitro Control provides an **opt-in, disabled-on-boot**
+service that pins the locally patched Linuwu `.ko` to the exact running Fedora
+kernel. No `acer_wmi` blacklist or upstream `make install` is used. Close the
+GUI without changing the keyboard back; stop the service to restore the
+previous lighting and stock Acer driver. See the full preflight, rollback,
+manual start/stop and kernel-upgrade guidance in [RGB-HARDWARE.md](docs/RGB-HARDWARE.md).
+
+This is experimental third-party kernel code, **not** part of the MIT-licensed
+Nitro Control application. Nitro Control does not bundle or redistribute the
+Linuwu source or binary. The kernel module is supplied from the user's own
+locally built, patched copy. Do not enable boot autoload until a separate
+on-demand, suspend/resume and reboot validation.

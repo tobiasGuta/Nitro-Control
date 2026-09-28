@@ -118,3 +118,97 @@ These are protocol/interface references, not endorsements to install or replace
 a currently working kernel driver. The RFC includes a reported brightness
 behavior issue; later integration into your exact installed kernel must be
 verified rather than assumed.
+
+## Opt-in, reversible on-demand driver integration (v0.3.0-preview.3)
+
+The user also validated the full GTK color/preset/brightness -> Polkit ->
+Linuwu -> physical four-zone path, with the original colors and stock module
+restored after a four-minute temporary session. Authorization caching worked.
+**An unbounded normal-use session, suspend/resume and reboot have not been
+validated yet.** The next installer is a staged, explicitly opted-in mechanism,
+not a claim of permanent driver safety.
+
+This approach does **not** use the upstream `make install`, add a kernel module
+blacklist, modify the boot image or enable a service automatically. It copies
+only the locally compiled/patched `.ko` into a root-owned, **current-kernel-only**
+path; records a SHA-256 digest; installs a root-owned controller and a systemd
+oneshot service. The controller refuses unexpected model/WMI, wrong or missing
+kernel module, altered digest, and a concurrently loaded Linuwu module. A failed
+start attempts to restore `acer_wmi`; successful stop restores the RGB state
+captured at start, unloads Linuwu and restores the native driver. The controller
+never writes fan or firmware profile controls.
+
+**Save your work and keep a recovery option available.** Experimental kernel code
+can crash/hang the system; software traps cannot recover from a hard lockup.
+This install requires the already patched, locally tested `.ko`, not the
+unpatched upstream code. Install from the Nitro Control checkout:
+
+```bash
+cd /mnt/Development/Tools/Nitro-Control
+git pull --ff-only
+./scripts/install-fedora.sh
+sudo ./scripts/install-rgb-driver-fedora.sh \
+  /mnt/Development/Tools/Div-Linuwu-Sense-build-test/src/linuwu_sense.ko
+systemctl is-enabled nitro-control-rgb-driver.service
+```
+
+The service should report `disabled`. The separate Polkit RGB helper must also
+be installed (the prior GUI test already installed it). Start the managed driver
+**on demand** and probe without using the four-minute test wrapper:
+
+```bash
+sudo systemctl start nitro-control-rgb-driver.service
+systemctl --no-pager status nitro-control-rgb-driver.service
+~/.local/bin/nitro-control --rgb-probe
+~/.local/bin/nitro-control
+```
+
+Choose colors at low brightness and use **Apply to keyboard**. Closing the GUI
+**does not stop the driver or reset colors**; the service manages the module,
+not the GUI. Inspect fan speeds and firmware profile. Do not simultaneously use
+`test-rgb-gui-session-fedora.sh`, the upstream `make install`, or another module
+manager while this service is active.
+
+To finish the on-demand session and restore the initial lighting and native
+driver:
+
+```bash
+sudo systemctl stop nitro-control-rgb-driver.service
+lsmod | grep -E '^(acer_wmi|linuwu_sense)'
+cat /sys/firmware/acpi/platform_profile
+sensors | sed -n '/acer-isa-0000/,/^$/p'
+```
+
+If service stop fails, inspect `journalctl -u nitro-control-rgb-driver.service -b`
+and do not force-load `acer_wmi` alongside Linuwu. A normal reboot without boot
+activation should return to the stock Acer module. If the service cannot be
+stopped cleanly, resolve the error or reboot. To remove the integration entirely:
+
+```bash
+sudo ./scripts/uninstall-rgb-driver-fedora.sh
+```
+
+It removes only Nitro Control's service/controller/pinned module files and
+leaves the independent Polkit helper installed. No general-purpose polkit
+passwordless rule, kernel blacklist or third-party boot service is installed.
+
+### Kernel upgrades and boot activation
+
+The module is **not** rebuilt automatically for new kernels. The controller
+selects `/usr/lib/modules/$(uname -r)/extra/nitro-control/linuwu_sense.ko` and
+checks `vermagic` and SHA-256. With no module for a newly booted kernel,
+`ExecCondition` skips the replacement. Stock `acer_wmi` remains unblacklisted.
+Rebuild and review the driver source for each new kernel, repeat the temporary
+RGB tests, then explicitly reinstall the matching `.ko`.
+
+Only after the new on-demand service passes runtime, suspend/resume and reboot
+validation should you **separately decide** whether to enable the service at
+boot with `sudo systemctl enable nitro-control-rgb-driver.service`. We do **not**
+automatically enable it now. Disable boot startup at any time with
+`sudo systemctl disable nitro-control-rgb-driver.service`; disable without
+`--now` does not stop an already active service. The native module may load
+first and then be replaced during boot if boot activation is enabled.
+
+A module load success and RGB sysfs readback are not evidence that every fan,
+power or laptop function remains correct across suspend/resume, new kernels or
+reboot. Maintain backups and validate on the actual hardware.

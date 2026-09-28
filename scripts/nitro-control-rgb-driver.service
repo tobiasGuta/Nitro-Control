@@ -1,0 +1,17 @@
+# Installed explicitly by Nitro Control; disabled by default.
+[Unit]
+Description=Nitro Control experimental four-zone RGB driver (AN515-58)
+After=systemd-modules-load.service systemd-udev-trigger.service
+Documentation=https://github.com/tobiasGuta/Nitro-Control/blob/main/docs/RGB-HARDWARE.md
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecCondition=/usr/local/libexec/nitro-control-rgb-driver check
+ExecStart=/usr/local/libexec/nitro-control-rgb-driver start
+ExecStop=/usr/local/libexec/nitro-control-rgb-driver stop
+TimeoutStartSec=30
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
