@@ -1,17 +1,59 @@
 # AN515-58 physical keyboard RGB: development and safety guide
 
-## Known local baseline
+## Validated temporary hardware test (AN515-58)
 
 Reference device: Acer Nitro AN515-58, four-zone RGB keyboard, Fedora 44,
-kernel 7.2.7, Intel Iris Xe + NVIDIA RTX 3050 Ti. `acer_wmi` provides both fan
-RPM sensors and firmware performance profiles, and the NVIDIA driver works on
-GNOME Wayland. The numbered WMI instance
-`7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56-8` is present, **but** no RGB driver
-is bound and no multicolor keyboard LED nodes or Linuwu RGB sysfs file exist.
+kernel 7.2.7-200.fc44.x86_64, Intel Iris Xe + NVIDIA RTX 3050 Ti.
+The stock `acer_wmi` exposes fan RPM and firmware performance profiles but not
+a four-zone keyboard RGB writer. The exact numbered WMI instance
+`7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56-8` is present.
 
-**This means physical keyboard lighting is not yet operable through Nitro
-Control on this exact baseline.** The GUI simulation and power controls remain
-available. Installing the optional helper alone cannot create an RGB driver.
+On this machine, the user compiled Div-Linuwu-Sense revision
+`d8ea437d847268dd9fe2a49ae28d0723dd720968` against the running kernel,
+locally replaced three legacy `strncpy()` calls with `memcpy()` plus
+`linux/string.h`, and added explicit nonzero/bounded input-length checks.
+A temporary `insmod` test exposed `four_zoned_kb/per_zone_mode`; a uniform
+low-brightness green test and a red/green/blue/purple four-zone test both
+visibly worked. The original `393651,393651,393651,393651,100` lighting was
+restored and the stock `acer_wmi` was reloaded. Subsequent fan readings,
+`balanced` platform profile, and NVIDIA readings were present.
+
+These results establish this single machine's temporary RGB behavior, **not**
+suspend/resume, reboot, new-kernel, or permanent-driver compatibility. The
+upstream module still replaces the native Acer driver when installed.
+
+## Temporary GUI integration test
+
+The app already contains an optional root-owned Polkit RGB helper and physical
+Apply button. The session script leaves driver installation, blacklisting,
+boot settings and module autoload unchanged.
+
+From the Nitro Control repo, explicitly install only the optional helper:
+
+```bash
+sudo ./scripts/install-rgb-helper-fedora.sh
+```
+
+Close other Nitro Control windows, then run from your normal graphical desktop
+terminal (not `sudo bash`):
+
+```bash
+./scripts/test-rgb-gui-session-fedora.sh
+```
+
+It requires the locally patched `.ko` in
+`/mnt/Development/Tools/Div-Linuwu-Sense-build-test/src/linuwu_sense.ko`;
+an alternate full `.ko` path may be passed as the first argument. It checks
+model, kernel version, helper and module state, opens one temporary driver
+session, saves existing lighting, probes the Linuwu endpoint, launches the
+unprivileged application, and restores lighting and stock `acer_wmi` on exit.
+The GUI time limit is four minutes. It cannot recover from a kernel crash,
+hard kill, or sudden power loss; a normal reboot should load the stock module
+because no persistent module configuration changes are made. A Polkit prompt
+is required for the actual GUI write. Inspect the physical keyboard.
+
+After the test, inspect `lsmod`, the platform profile and fan sensors.
+Only after this GUI test passes should permanent installation be considered.
 
 ## Safe progression
 
@@ -19,10 +61,9 @@ available. Installing the optional helper alone cannot create an RGB driver.
 2. Back up the development drive and important files before considering any
    custom kernel changes. The development drive was observed as unencrypted
    Btrfs, so consider encryption only with a verified backup/recovery plan.
-3. Use `python3 -m nitro_control --rgb-probe` to confirm the current backend.
-4. If a supported RGB sysfs endpoint becomes available from an independently
-   validated driver, install the optional root-owned helper explicitly with
-   `sudo ./scripts/install-rgb-helper-fedora.sh`.
+3. Use `~/.local/bin/nitro-control --rgb-probe` to confirm the current backend during an explicitly started driver test.
+4. For the validated temporary Linuwu session, install the optional root-owned
+   helper explicitly with `sudo ./scripts/install-rgb-helper-fedora.sh`.
 5. Start with a uniform, low-brightness static color, confirm the Polkit prompt,
    visually verify that the keyboard really changes, and verify fan RPM/profile
    remain normal. Then test four distinct colors.
