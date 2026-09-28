@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import re
 
-_HEX = re.compile(r"#[0-9A-Fa-f]{6}\\Z", re.ASCII)
+_HEX = re.compile(r"#[0-9A-Fa-f]{6}\Z", re.ASCII)
 
 
 class RGBValidationError(ValueError):
