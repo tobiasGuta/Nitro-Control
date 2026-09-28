@@ -2,9 +2,27 @@
 
 **A native GNOME dashboard for Acer Nitro laptops, initially tested against the AN515-58 interface.**
 
-Version 0.2.0 • Python 3.11+ • MIT license
+Version 0.3.0-preview.1 • Python 3.11+ • MIT license
 
 Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. v0.2.0 adds optional desktop power-mode switching through Fedora’s existing system D-Bus service. The application does **not** write fan PWM, sysfs, or WMI RGB commands, modify kernel modules, or run its GUI as root.
+
+## v0.3 preview: in-memory four-zone lighting studio
+
+The user-confirmed AN515-58 has a physical four-zone RGB keyboard, and Linux
+exposes the Acer RGB WMI GUID (with an instance suffix). **There is currently no
+bound RGB driver or multicolor keyboard LED interface on the reference Fedora
+installation.** The GUID alone is *not* a safe or usable writing endpoint.
+
+This preview adds four native GTK color selectors, brightness, built-in presets,
+validation, and Apply preview/Reset controls. **The preview backend is strictly
+in-memory: it cannot change the physical keyboard, install modules, send WMI
+commands, or write sysfs.** Nothing is auto-applied at login. Power-mode controls
+from v0.2 still work independently. Color choices are not persisted yet.
+
+Only after a suitable driver/interface is present and verified on the real
+machine will a separate, explicitly gated physical RGB adapter be considered.
+Do not manually bind an unknown WMI driver or replace the working `acer_wmi` for
+this preview.
 
 ## v0.2.0 capabilities
 
@@ -78,7 +96,7 @@ Tests use a disposable simulated sysfs tree shaped like the AN515-58, plus an in
 ## Safety and privacy
 
 - Hardware monitoring is read-only and runs as your normal desktop user. Power-mode changes occur only after explicit user confirmation.
-- No telemetry, network requests, external extensions, custom drivers, root GUI, fan curves, or EC/WMI command calls.
+- No telemetry, network requests, external extensions, custom drivers, root GUI, fan curves, or EC/WMI command calls. The RGB preview is in-memory only.
 - Only the standard power-profiles D-Bus `ActiveProfile` property is writable. Fedora’s system service is responsible for authorization and its own hardware mapping; Nitro Control never invokes `sudo`/`pkexec` or stores a privileged helper in a user-writable directory.
 - Power Saver, Balanced, and Performance are desktop modes. The five Acer firmware-supported names remain read-only; do not assume a one-to-one mapping.
 - JSON output includes device model and measurements, not hostname, machine ID, MAC address, or exact filesystem paths.
@@ -93,6 +111,7 @@ nitro_control/
   ui.py             GTK4/Libadwaita dashboard
   hardware.py       isolated read-only hardware adapters
   profiles.py       optional desktop power-mode service with validation
+  rgb.py            validated four-zone plans and in-memory preview backend
   models.py         typed immutable snapshots
   demo.py           explicitly labeled example data
 scripts/            per-user install and uninstall
@@ -102,7 +121,8 @@ scripts/            per-user install and uninstall
 ## Roadmap
 
 - v0.2: Desktop power-mode switching through the standard system service, with confirmation.
-- v0.3 candidate: Investigate native keyboard RGB support; verify actual keyboard variant and driver behavior before any write operation.
+- v0.3 preview: Four-zone simulated lighting editor and validation (no hardware writes).
+- Later v0.3 hardware milestone: Validate a genuine RGB driver and permission model before enabling physical lighting.
 - Later: Packaging and broader hardware testing. No requirement to replace a functioning native `acer_wmi` driver.
 
 ## References
@@ -113,6 +133,8 @@ scripts/            per-user install and uninstall
 - [Libadwaita application window](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/class.ApplicationWindow.html)
 - [NVIDIA System Management Interface](https://docs.nvidia.com/deploy/nvidia-smi/)
 - [Power Profiles D-Bus interface](https://upower.pages.freedesktop.org/power-profiles-daemon/gdbus-org.freedesktop.UPower.PowerProfiles.html)
+- [Linux multicolor LED userspace ABI](https://kernel.org/doc/html/next/leds/leds-class-multicolor.html)
+- [AN515-58 RGB kernel RFC (not a shipped driver guarantee)](https://www.spinics.net/lists/kernel/msg6183499.html)
 
 ## License
 
