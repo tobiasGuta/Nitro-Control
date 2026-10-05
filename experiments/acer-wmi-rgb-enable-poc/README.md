@@ -10,9 +10,10 @@ It tests one narrow hypothesis discovered on the reference Acer Nitro AN515-58:
 - the May 2026 upstream RFC for AN515-58 RGB support explicitly polls the Acer
   gaming WMI interface and then enables all four keyboard zones after HWMON init.
 
-The module in this directory reproduces only that two-call enable sequence.
-It does **not** replace `acer_wmi`, expose RGB sysfs devices, install itself,
-autoload, modify GRUB, or touch fan controls.
+The module in this directory supports a default dry run, an explicit read-only
+firmware-state probe, and the earlier two-call enable experiment. It does **not**
+replace `acer_wmi`, expose RGB sysfs devices, install itself, autoload, modify
+GRUB, or touch fan controls.
 
 ## Safety properties
 
@@ -62,7 +63,21 @@ Expected log:
 nitro_rgb_enable_poc: dry run only; model and WMI GUID validated
 ```
 
-## Live one-shot test
+## Read-only firmware-state probe
+
+After the dry run succeeds, inspect what the firmware reports while stock
+`acer_wmi` and Acer HWMON remain active:
+
+```bash
+sudo insmod ./nitro_rgb_enable_poc.ko probe=1
+sudo journalctl -k -b --no-pager | grep -i nitro_rgb_enable_poc
+sudo rmmod nitro_rgb_enable_poc
+```
+
+This uses the keyboard-state and per-zone **get** methods only. It does not set
+colors or brightness.
+
+## Live one-shot enable test
 
 Only after the dry run succeeds:
 
