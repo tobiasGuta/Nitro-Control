@@ -123,3 +123,27 @@ available, the project has a strong basis for replacing the current
 
 This experiment does **not** yet solve Fn+F9/Fn+F10 brightness handling or
 register the four multicolor LED zones.
+
+
+## Static-red RFC method-6 test
+
+Use this only after the dry run and read-only probe have succeeded.
+
+The read-only probe on the reference AN515-58 showed a nonzero global
+brightness but zero RGB data for all four zones while the physical keyboard
+was dark. This test therefore follows the RFC's actual static LED write path:
+it enables all four zones and writes RGB `255,0,0` to zone masks
+`0x1,0x2,0x4,0x8` using WMI method 6.
+
+```bash
+sudo insmod ./nitro_rgb_enable_poc.ko red_test=1
+sudo journalctl -k -b --no-pager | grep -i nitro_rgb_enable_poc | tail -n 20
+sudo rmmod nitro_rgb_enable_poc
+```
+
+This leaves stock `acer_wmi` and Acer HWMON loaded. If the physical keyboard
+turns red while fan telemetry remains present, that demonstrates that the RGB
+write path can coexist with stock HWMON on this machine.
+
+The module does not persist or restore the prior lighting state. Reboot if a
+firmware state needs to be reset before further experiments.
