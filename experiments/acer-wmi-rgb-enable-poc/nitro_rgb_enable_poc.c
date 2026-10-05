@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Nitro Control AN515-58 RGB enable proof-of-concept.
+ * Nitro Control AN515-58 RGB proof-of-concept.
  *
- * This is deliberately NOT a replacement for acer_wmi. It only reproduces
- * the two WMI calls used by the 2026 AN515-58 RGB RFC to poll the gaming
- * interface and enable all four keyboard zones.
+ * This is deliberately NOT a replacement for acer_wmi. It provides:
+ *   - default dry-run validation only;
+ *   - an explicit read-only firmware-state probe;
+ *   - the earlier explicit RGB-enable sequence for comparison.
  *
  * No autoload alias is provided. The module must be inserted manually.
  */
@@ -19,16 +20,28 @@
 
 #define ACER_GAMING_WMI_GUID "7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56"
 
-#define ACER_WMID_GET_GAMING_LED_METHODID      4
-#define ACER_WMID_GET_GAMING_SYS_INFO_METHODID 5
+#define ACER_WMID_GET_GAMING_LED_METHODID          4
+#define ACER_WMID_GET_GAMING_SYS_INFO_METHODID     5
+#define ACER_WMID_GET_GAMING_RGB_KB_METHODID       7
+#define ACER_WMID_GET_GAMING_KB_BACKLIGHT_METHODID 21
 
 #define ACER_GAMING_KBL_SET_ON        BIT_ULL(3)
 #define ACER_GAMING_KBL_SET_ALL_ZONES GENMASK_ULL(43, 40)
 
+struct get_four_zoned_kb_output {
+	u8 gm_return;
+	u8 gm_output[15];
+} __packed;
+
 static bool enable;
 module_param(enable, bool, 0400);
 MODULE_PARM_DESC(enable,
-	"Actually issue the AN515-58 gaming-WMI RGB-enable sequence (default: false)");
+	"Issue the RFC AN515-58 gaming-WMI zone-enable sequence (default: false)");
+
+static bool probe;
+module_param(probe, bool, 0400);
+MODULE_PARM_DESC(probe,
+	"Read keyboard mode/brightness and four zone-color firmware state (default: false)");
 
 static bool nitro_exact_model(void)
 {
@@ -40,7 +53,7 @@ static bool nitro_exact_model(void)
 	       !strcmp(product, "Nitro AN515-58");
 }
 
-static acpi_status nitro_wmi_call_u64(u32 method_id, u64 value)
+static acpi_status nitro_wmi_call_u64(u32 method_id, u64 value, u64 *result)
 {
 	struct acpi_buffer input = {
 		.length = sizeof(value),
@@ -50,20 +63,125 @@ static acpi_status nitro_wmi_call_u64(u32 method_id, u64 value)
 		.length = ACPI_ALLOCATE_BUFFER,
 		.pointer = NULL,
 	};
+	union acpi_object *obj;
 	acpi_status status;
+	u64 tmp = 0;
 
 	status = wmi_evaluate_method(ACER_GAMING_WMI_GUID, 0, method_id,
 				     &input, &output);
-	kfree(output.pointer);
+	if (ACPI_FAILURE(status))
+		return status;
 
+	obj = output.pointer;
+	if (obj && result) {
+		if (obj->type == ACPI_TYPE_INTEGER) {
+			tmp = obj->integer.value;
+		} else if (obj->type == ACPI_TYPE_BUFFER) {
+			if (obj->buffer.length == sizeof(u32))
+				tmp = *(u32 *)obj->buffer.pointer;
+			else if (obj->buffer.length == sizeof(u64))
+				tmp = *(u64 *)obj->buffer.pointer;
+		}
+		*result = tmp;
+	}
+
+	kfree(output.pointer);
 	return status;
 }
 
-static int __init nitro_rgb_enable_poc_init(void)
+static int nitro_probe_keyboard_state(void)
+{
+	static const u8 zone_ids[] = { 0x1, 0x2, 0x4, 0x8 };
+	struct acpi_buffer input;
+	struct acpi_buffer output = {
+		.length = ACPI_ALLOCATE_BUFFER,
+		.pointer = NULL,
+	};
+	struct get_four_zoned_kb_output state;
+	union acpi_object *obj;
+	acpi_status status;
+	u64 in = 1;
+	u64 raw;
+	int i;
+
+	input.length = sizeof(in);
+	input.pointer = &in;
+	status = wmi_evaluate_method(ACER_GAMING_WMI_GUID, 0,
+				     ACER_WMID_GET_GAMING_KB_BACKLIGHT_METHODID,
+				     &input, &output);
+	if (ACPI_FAILURE(status)) {
+		pr_err("nitro_rgb_enable_poc: method 21 state read failed: %s\n",
+		       acpi_format_exception(status));
+		return -EIO;
+	}
+
+	obj = output.pointer;
+	if (!obj || obj->type != ACPI_TYPE_BUFFER ||
+	    obj->buffer.length != sizeof(state)) {
+		pr_err("nitro_rgb_enable_poc: method 21 returned unexpected object (type=%u len=%u)\n",
+		       obj ? obj->type : 0,
+		       obj && obj->type == ACPI_TYPE_BUFFER ? obj->buffer.length : 0);
+		kfree(output.pointer);
+		return -EIO;
+	}
+
+	memcpy(&state, obj->buffer.pointer, sizeof(state));
+	kfree(output.pointer);
+
+	pr_info("nitro_rgb_enable_poc: keyboard state: return=%u mode=%u speed=%u brightness=%u direction=%u rgb=%u,%u,%u\n",
+		state.gm_return,
+		state.gm_output[0], state.gm_output[1], state.gm_output[2],
+		state.gm_output[4], state.gm_output[5],
+		state.gm_output[6], state.gm_output[7]);
+
+	for (i = 0; i < ARRAY_SIZE(zone_ids); i++) {
+		raw = 0;
+		status = nitro_wmi_call_u64(ACER_WMID_GET_GAMING_RGB_KB_METHODID,
+					    zone_ids[i], &raw);
+		if (ACPI_FAILURE(status)) {
+			pr_err("nitro_rgb_enable_poc: method 7 zone %d read failed: %s\n",
+			       i + 1, acpi_format_exception(status));
+			return -EIO;
+		}
+		pr_info("nitro_rgb_enable_poc: zone %d raw=0x%016llx\n",
+			i + 1, raw);
+	}
+
+	return 0;
+}
+
+static int nitro_enable_zones(void)
 {
 	acpi_status status;
 	u64 zone_enable = ACER_GAMING_KBL_SET_ON |
 			  ACER_GAMING_KBL_SET_ALL_ZONES;
+
+	pr_info("nitro_rgb_enable_poc: issuing gaming-system-info poll\n");
+	status = nitro_wmi_call_u64(ACER_WMID_GET_GAMING_SYS_INFO_METHODID,
+				    0, NULL);
+	if (ACPI_FAILURE(status)) {
+		pr_err("nitro_rgb_enable_poc: method 5 failed: %s\n",
+		       acpi_format_exception(status));
+		return -EIO;
+	}
+
+	pr_info("nitro_rgb_enable_poc: enabling all four keyboard zones (0x%llx)\n",
+		zone_enable);
+	status = nitro_wmi_call_u64(ACER_WMID_GET_GAMING_LED_METHODID,
+				    zone_enable, NULL);
+	if (ACPI_FAILURE(status)) {
+		pr_err("nitro_rgb_enable_poc: method 4 failed: %s\n",
+		       acpi_format_exception(status));
+		return -EIO;
+	}
+
+	pr_info("nitro_rgb_enable_poc: WMI enable sequence completed\n");
+	return 0;
+}
+
+static int __init nitro_rgb_enable_poc_init(void)
+{
+	int ret;
 
 	if (!nitro_exact_model()) {
 		pr_err("nitro_rgb_enable_poc: refusing non-AN515-58 hardware\n");
@@ -75,31 +193,22 @@ static int __init nitro_rgb_enable_poc_init(void)
 		return -ENODEV;
 	}
 
-	if (!enable) {
+	if (!probe && !enable) {
 		pr_info("nitro_rgb_enable_poc: dry run only; model and WMI GUID validated\n");
-		pr_info("nitro_rgb_enable_poc: reload with enable=1 to issue the test sequence\n");
+		pr_info("nitro_rgb_enable_poc: use probe=1 for read-only firmware-state inspection\n");
 		return 0;
 	}
 
-	pr_info("nitro_rgb_enable_poc: issuing gaming-system-info poll\n");
-	status = nitro_wmi_call_u64(ACER_WMID_GET_GAMING_SYS_INFO_METHODID, 0);
-	if (ACPI_FAILURE(status)) {
-		pr_err("nitro_rgb_enable_poc: method 5 failed: %s\n",
-		       acpi_format_exception(status));
-		return -EIO;
+	if (probe) {
+		pr_info("nitro_rgb_enable_poc: starting read-only keyboard-state probe\n");
+		ret = nitro_probe_keyboard_state();
+		if (ret)
+			return ret;
 	}
 
-	pr_info("nitro_rgb_enable_poc: enabling all four keyboard zones (0x%llx)\n",
-		zone_enable);
-	status = nitro_wmi_call_u64(ACER_WMID_GET_GAMING_LED_METHODID,
-				    zone_enable);
-	if (ACPI_FAILURE(status)) {
-		pr_err("nitro_rgb_enable_poc: method 4 failed: %s\n",
-		       acpi_format_exception(status));
-		return -EIO;
-	}
+	if (enable)
+		return nitro_enable_zones();
 
-	pr_info("nitro_rgb_enable_poc: WMI sequence completed; inspect keyboard visually\n");
 	return 0;
 }
 
@@ -112,5 +221,5 @@ module_init(nitro_rgb_enable_poc_init);
 module_exit(nitro_rgb_enable_poc_exit);
 
 MODULE_AUTHOR("Nitro Control project");
-MODULE_DESCRIPTION("AN515-58 one-shot RGB enable experiment");
+MODULE_DESCRIPTION("AN515-58 guarded RGB firmware experiment");
 MODULE_LICENSE("GPL");
