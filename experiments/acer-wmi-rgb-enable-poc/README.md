@@ -147,3 +147,27 @@ write path can coexist with stock HWMON on this machine.
 
 The module does not persist or restore the prior lighting state. Reboot if a
 firmware state needs to be reset before further experiments.
+
+
+## Method-20 activation isolation test
+
+If method 6 stores RGB values but the physical keyboard remains dark, use this
+test before trying a full Linuwu-style write sequence.
+
+The module first reads the current keyboard and per-zone firmware state, then
+issues only the 16-byte keyboard-backlight setup used by Linuwu-Sense for
+static mode with brightness 25, and finally reads the state again.
+
+It intentionally does **not** rewrite the four zone colors during this test.
+
+```bash
+sudo insmod ./nitro_rgb_enable_poc.ko backlight_test=1
+sudo journalctl -k -b --no-pager | grep -i nitro_rgb_enable_poc | tail -n 30
+sudo rmmod nitro_rgb_enable_poc
+```
+
+If the previous static-red method-6 test is still stored by firmware, this test
+can reveal whether method 20 is the missing physical-light activation step. If
+method 20 clears or changes the stored zone values, the before/after probe will
+show that and the next experiment should use the complete method-20 + method-6
+sequence.
