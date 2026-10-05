@@ -22,6 +22,7 @@
 
 #define ACER_WMID_GET_GAMING_LED_METHODID          4
 #define ACER_WMID_GET_GAMING_SYS_INFO_METHODID     5
+#define ACER_WMID_SET_GAMING_STATIC_LED_METHODID    6
 #define ACER_WMID_GET_GAMING_RGB_KB_METHODID       7
 #define ACER_WMID_GET_GAMING_KB_BACKLIGHT_METHODID 21
 
@@ -33,6 +34,13 @@ struct get_four_zoned_kb_output {
 	u8 gm_output[15];
 } __packed;
 
+struct led_four_zone_set_param {
+	u8 zone;
+	u8 red;
+	u8 green;
+	u8 blue;
+} __packed;
+
 static bool enable;
 module_param(enable, bool, 0400);
 MODULE_PARM_DESC(enable,
@@ -42,6 +50,11 @@ static bool probe;
 module_param(probe, bool, 0400);
 MODULE_PARM_DESC(probe,
 	"Read keyboard mode/brightness and four zone-color firmware state (default: false)");
+
+static bool red_test;
+module_param(red_test, bool, 0400);
+MODULE_PARM_DESC(red_test,
+	"Write static red to all four zones using RFC method 6 (default: false)");
 
 static bool nitro_exact_model(void)
 {
@@ -179,6 +192,55 @@ static int nitro_enable_zones(void)
 	return 0;
 }
 
+static int nitro_set_static_zone(u8 zone, u8 red, u8 green, u8 blue)
+{
+	struct led_four_zone_set_param params = {
+		.zone = zone,
+		.red = red,
+		.green = green,
+		.blue = blue,
+	};
+	struct acpi_buffer input = {
+		.length = sizeof(params),
+		.pointer = &params,
+	};
+	acpi_status status;
+
+	status = wmi_evaluate_method(ACER_GAMING_WMI_GUID, 0,
+				     ACER_WMID_SET_GAMING_STATIC_LED_METHODID,
+				     &input, NULL);
+	if (ACPI_FAILURE(status)) {
+		pr_err("nitro_rgb_enable_poc: method 6 zone 0x%x write failed: %s\n",
+		       zone, acpi_format_exception(status));
+		return -EIO;
+	}
+
+	pr_info("nitro_rgb_enable_poc: method 6 wrote zone 0x%x rgb=%u,%u,%u\n",
+		zone, red, green, blue);
+	return 0;
+}
+
+static int nitro_static_red_test(void)
+{
+	static const u8 zone_ids[] = { 0x1, 0x2, 0x4, 0x8 };
+	int i, ret;
+
+	ret = nitro_enable_zones();
+	if (ret)
+		return ret;
+
+	for (i = 0; i < ARRAY_SIZE(zone_ids); i++) {
+		ret = nitro_set_static_zone(zone_ids[i], 255, 0, 0);
+		if (ret)
+			return ret;
+	}
+
+	pr_info("nitro_rgb_enable_poc: static-red write completed; inspect keyboard visually\n");
+
+	/* Read back immediately so the test records firmware state too. */
+	return nitro_probe_keyboard_state();
+}
+
 static int __init nitro_rgb_enable_poc_init(void)
 {
 	int ret;
@@ -193,7 +255,7 @@ static int __init nitro_rgb_enable_poc_init(void)
 		return -ENODEV;
 	}
 
-	if (!probe && !enable) {
+	if (!probe && !enable && !red_test) {
 		pr_info("nitro_rgb_enable_poc: dry run only; model and WMI GUID validated\n");
 		pr_info("nitro_rgb_enable_poc: use probe=1 for read-only firmware-state inspection\n");
 		return 0;
@@ -206,8 +268,14 @@ static int __init nitro_rgb_enable_poc_init(void)
 			return ret;
 	}
 
-	if (enable)
-		return nitro_enable_zones();
+	if (enable) {
+		ret = nitro_enable_zones();
+		if (ret)
+			return ret;
+	}
+
+	if (red_test)
+		return nitro_static_red_test();
 
 	return 0;
 }
