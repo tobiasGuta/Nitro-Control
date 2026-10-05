@@ -24,6 +24,7 @@
 #define ACER_WMID_GET_GAMING_SYS_INFO_METHODID     5
 #define ACER_WMID_SET_GAMING_STATIC_LED_METHODID    6
 #define ACER_WMID_GET_GAMING_RGB_KB_METHODID       7
+#define ACER_WMID_SET_GAMING_KB_BACKLIGHT_METHODID 20
 #define ACER_WMID_GET_GAMING_KB_BACKLIGHT_METHODID 21
 
 #define ACER_GAMING_KBL_SET_ON        BIT_ULL(3)
@@ -55,6 +56,11 @@ static bool red_test;
 module_param(red_test, bool, 0400);
 MODULE_PARM_DESC(red_test,
 	"Write static red to all four zones using RFC method 6 (default: false)");
+
+static bool backlight_test;
+module_param(backlight_test, bool, 0400);
+MODULE_PARM_DESC(backlight_test,
+	"Issue only Linuwu-style method 20 static-mode/brightness=25 setup (default: false)");
 
 static bool nitro_exact_model(void)
 {
@@ -192,6 +198,79 @@ static int nitro_enable_zones(void)
 	return 0;
 }
 
+static int nitro_set_kb_backlight_static_25(void)
+{
+	u8 gm_input[16] = {
+		0,  /* static mode */
+		0,  /* speed */
+		25, /* preserve observed firmware brightness */
+		0,
+		0,  /* direction */
+		0, 0, 0, /* global RGB; per-zone RGB is stored separately */
+		3, 1,
+		0, 0, 0, 0, 0, 0
+	};
+	struct acpi_buffer input = {
+		.length = sizeof(gm_input),
+		.pointer = gm_input,
+	};
+	struct acpi_buffer output = {
+		.length = ACPI_ALLOCATE_BUFFER,
+		.pointer = NULL,
+	};
+	union acpi_object *obj;
+	acpi_status status;
+	u64 response = 0;
+
+	status = wmi_evaluate_method(ACER_GAMING_WMI_GUID, 0,
+				     ACER_WMID_SET_GAMING_KB_BACKLIGHT_METHODID,
+				     &input, &output);
+	if (ACPI_FAILURE(status)) {
+		pr_err("nitro_rgb_enable_poc: method 20 failed: %s\n",
+		       acpi_format_exception(status));
+		return -EIO;
+	}
+
+	obj = output.pointer;
+	if (obj) {
+		if (obj->type == ACPI_TYPE_INTEGER) {
+			response = obj->integer.value;
+		} else if (obj->type == ACPI_TYPE_BUFFER) {
+			if (obj->buffer.length == sizeof(u32))
+				response = *(u32 *)obj->buffer.pointer;
+			else if (obj->buffer.length == sizeof(u64))
+				response = *(u64 *)obj->buffer.pointer;
+		}
+	}
+	kfree(output.pointer);
+
+	if (response) {
+		pr_err("nitro_rgb_enable_poc: method 20 firmware response=%llu\n",
+		       response);
+		return -EIO;
+	}
+
+	pr_info("nitro_rgb_enable_poc: method 20 accepted static mode, brightness=25\n");
+	return 0;
+}
+
+static int nitro_backlight_only_test(void)
+{
+	int ret;
+
+	pr_info("nitro_rgb_enable_poc: probing state before method 20\n");
+	ret = nitro_probe_keyboard_state();
+	if (ret)
+		return ret;
+
+	ret = nitro_set_kb_backlight_static_25();
+	if (ret)
+		return ret;
+
+	pr_info("nitro_rgb_enable_poc: probing state after method 20\n");
+	return nitro_probe_keyboard_state();
+}
+
 static int nitro_set_static_zone(u8 zone, u8 red, u8 green, u8 blue)
 {
 	struct led_four_zone_set_param params = {
@@ -255,7 +334,7 @@ static int __init nitro_rgb_enable_poc_init(void)
 		return -ENODEV;
 	}
 
-	if (!probe && !enable && !red_test) {
+	if (!probe && !enable && !red_test && !backlight_test) {
 		pr_info("nitro_rgb_enable_poc: dry run only; model and WMI GUID validated\n");
 		pr_info("nitro_rgb_enable_poc: use probe=1 for read-only firmware-state inspection\n");
 		return 0;
@@ -273,6 +352,9 @@ static int __init nitro_rgb_enable_poc_init(void)
 		if (ret)
 			return ret;
 	}
+
+	if (backlight_test)
+		return nitro_backlight_only_test();
 
 	if (red_test)
 		return nitro_static_red_test();
