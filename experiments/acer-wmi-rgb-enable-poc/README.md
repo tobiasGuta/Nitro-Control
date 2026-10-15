@@ -180,7 +180,7 @@ are still available and the Linuwu replacement driver/service is inactive.
 This is a *firmware-writing* test (not a dry run). On the exact AN515-58 it:
 
 1. reads current keyboard mode, brightness, and four-zone firmware state;
-2. issues gaming-WMI method 5 (poll) and method 4 (enable zones);
+2. issues gaming-WMI method 5 (poll) and method 2 (enable zones);
 3. configures static mode at brightness 100 using a 16-byte method-20 input;
 4. sets all four zones red with **8-byte method-6 inputs** following the
    October 2026 AN515-58 Linux patch / Linuwu encoding, checking WMI responses;
@@ -203,3 +203,11 @@ Expected result, if the hypothesis is correct: keyboard visibly red and Acer
 HWMON and platform profile still working. The firmware state may persist beyond
 module unload. Do not repeat or install this automatically. On failure, collect
 logs and visually observed behavior before planning another experiment.
+
+### Correction to the earlier experiment
+
+The earlier PoC mistakenly used gaming-WMI **method 4** to try to enable
+all four zones. The October 2026 patch and JafarAkhondali driver identify
+**method 2** as the *set* command and method 4 as the *get* command. The
+new `full_test=1` sequence uses method 2. That earlier experiment therefore
+did **not** establish that the controller-enable operation had occurred.
