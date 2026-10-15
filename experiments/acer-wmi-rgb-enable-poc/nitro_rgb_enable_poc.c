@@ -21,7 +21,7 @@
 
 #define ACER_GAMING_WMI_GUID "7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56"
 
-#define ACER_WMID_GET_GAMING_LED_METHODID          4
+#define ACER_WMID_SET_GAMING_LED_METHODID          2
 #define ACER_WMID_GET_GAMING_SYS_INFO_METHODID     5
 #define ACER_WMID_SET_GAMING_STATIC_LED_METHODID    6
 #define ACER_WMID_GET_GAMING_RGB_KB_METHODID       7
@@ -66,7 +66,7 @@ MODULE_PARM_DESC(backlight_test,
 static bool full_test;
 module_param(full_test, bool, 0400);
 MODULE_PARM_DESC(full_test,
-	"Explicit one-shot method 5/4 + 20 + four u64 method-6 red writes (default: false)");
+	"Explicit one-shot method 5/2 + 20 + four u64 method-6 red writes (default: false)");
 
 static bool nitro_exact_model(void)
 {
@@ -190,12 +190,12 @@ static int nitro_enable_zones(void)
 		return -EIO;
 	}
 
-	pr_info("nitro_rgb_enable_poc: enabling all four keyboard zones (0x%llx)\n",
+	pr_info("nitro_rgb_enable_poc: WMI method 2: enabling all four keyboard zones (0x%llx)\n",
 		zone_enable);
-	status = nitro_wmi_call_u64(ACER_WMID_GET_GAMING_LED_METHODID,
+	status = nitro_wmi_call_u64(ACER_WMID_SET_GAMING_LED_METHODID,
 				    zone_enable, NULL);
 	if (ACPI_FAILURE(status)) {
-		pr_err("nitro_rgb_enable_poc: method 4 failed: %s\n",
+		pr_err("nitro_rgb_enable_poc: method 2 failed: %s\n",
 		       acpi_format_exception(status));
 		return -EIO;
 	}
