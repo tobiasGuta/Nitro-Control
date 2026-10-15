@@ -171,3 +171,35 @@ can reveal whether method 20 is the missing physical-light activation step. If
 method 20 clears or changes the stored zone values, the before/after probe will
 show that and the next experiment should use the complete method-20 + method-6
 sequence.
+
+## Complete initialization experiment (October 2026 kernel patch)
+
+Use `full_test=1` only once per boot after confirming the Acer fan readings
+are still available and the Linuwu replacement driver/service is inactive.
+
+This is a *firmware-writing* test (not a dry run). On the exact AN515-58 it:
+
+1. reads current keyboard mode, brightness, and four-zone firmware state;
+2. issues gaming-WMI method 5 (poll) and method 4 (enable zones);
+3. configures static mode at brightness 100 using a 16-byte method-20 input;
+4. sets all four zones red with **8-byte method-6 inputs** following the
+   October 2026 AN515-58 Linux patch / Linuwu encoding, checking WMI responses;
+5. reads current firmware state again.
+
+The test does not unload/replace stock `acer_wmi`, does not control fan speeds,
+and does not install or enable a service. A success log only confirms software
+observations: you must still inspect the physical LEDs.
+
+```bash
+make clean && make
+modinfo ./nitro_rgb_enable_poc.ko | grep '^parm:'
+lsmod | grep '^nitro_rgb_enable_poc ' || echo "test module unloaded"
+sudo insmod ./nitro_rgb_enable_poc.ko full_test=1
+sudo journalctl -k -b --no-pager | grep nitro_rgb_enable_poc | tail -n 32
+sudo rmmod nitro_rgb_enable_poc
+```
+
+Expected result, if the hypothesis is correct: keyboard visibly red and Acer
+HWMON and platform profile still working. The firmware state may persist beyond
+module unload. Do not repeat or install this automatically. On failure, collect
+logs and visually observed behavior before planning another experiment.
