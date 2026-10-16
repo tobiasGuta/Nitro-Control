@@ -211,3 +211,38 @@ all four zones. The October 2026 patch and JafarAkhondali driver identify
 **method 2** as the *set* command and method 4 as the *get* command. The
 new `full_test=1` sequence uses method 2. That earlier experiment therefore
 did **not** establish that the controller-enable operation had occurred.
+
+## Confirmed hardware result and guarded recovery
+
+On October 15, 2026, the reference Acer Nitro AN515-58 running Fedora 44
+kernel `7.2.9-201.fc44.x86_64` **physically illuminated all four zones**
+after `full_test=1`. Firmware readback confirmed red in all zones and
+brightness 100. The lighting stayed on after unloading the experimental
+module; both Fn brightness keys worked without changing the colors. Stock
+`acer_wmi` remained loaded, Acer fan1/fan2 RPM and three temperature sensors
+were readable, and the platform profile remained balanced.
+
+This confirms *manual* recovery, not reboot or resume persistence. For a
+controlled **post-reboot manual recovery**, a guarded helper now replays only
+the successful full initialization sequence:
+
+```bash
+# After rebooting normally, only if the keyboard is dark:
+cd /mnt/Development/Tools/Nitro-Control/experiments/acer-wmi-rgb-enable-poc
+make clean && make
+sudo bash ./restore-after-boot.sh
+sudo journalctl -k -b --no-pager | grep nitro_rgb_enable_poc | tail -n 18
+```
+
+The helper refuses non-AN515-58 hardware, unsupported/mismatched kernel module,
+missing stock Acer HWMON fan telemetry, conflicting Linuwu service/module, and
+non-default `acer_wmi.force_caps`. It does not load any driver except the
+temporary experimental module, which is automatically unloaded even if a
+post-check fails. It configures **all four zones red at brightness 100** and
+does not preserve other colors or brightness choices.
+
+The recovery helper does **not** install, enable, or schedule anything on boot.
+After verifying the recovery works on a clean reboot, the next milestone is a
+separately reviewed, explicitly enabled, reversible startup mechanism that can
+survive ordinary Fedora kernel updates. Do not enable unattended boot actions
+from this proof-of-concept before that qualification.
