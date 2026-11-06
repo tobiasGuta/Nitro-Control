@@ -14,6 +14,7 @@
 #include <linux/byteorder/generic.h>
 #include <linux/dmi.h>
 #include <linux/init.h>
+#include <linux/hex.h>
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/string.h>
