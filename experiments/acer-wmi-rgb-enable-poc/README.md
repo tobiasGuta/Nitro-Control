@@ -246,3 +246,17 @@ After verifying the recovery works on a clean reboot, the next milestone is a
 separately reviewed, explicitly enabled, reversible startup mechanism that can
 survive ordinary Fedora kernel updates. Do not enable unattended boot actions
 from this proof-of-concept before that qualification.
+
+## Configurable native backend (v0.4 development branch)
+
+This branch adds `apply=1` with `colors=RRGGBB,RRGGBB,RRGGBB,RRGGBB`
+and `brightness=1..100` to the kernel PoC. Unlike the proven
+`full_test=1` red-only path, **custom-color writes have not yet been verified
+physically**. The PoC rejects malformed colors/brightness and checks each
+zone's firmware readback but cannot guarantee physical illumination.
+
+Do **not** call `insmod` with these arguments directly as a routine action.
+Use the separate pinned, integrity-checked, Polkit-protected backend documented
+in [Native RGB](../../docs/NATIVE-RGB.md). It keeps stock `acer_wmi` loaded,
+runs one authorized transaction, and attempts to unload the module. No boot
+autoload is included; a known-good red-only manual recovery remains available.
