@@ -65,13 +65,28 @@ were observed **only after the new configurable Nitro-Control GUI apply**
 5, 2, 20, and 6. Prioritize **color/brightness interaction in our new
 configuration**, not a presumed Fedora/global hotkey issue.
 
-Controlled test: compare **green/100** against the known-good **red/100**
-baseline, using the GUI for the green apply; if green/100 behaves normally,
-compare **green/65**. Use one short Fn+F9 press at a time, stop at the first
-unexpected color change, and record read-only `probe=1` before/after WMI
-state. If even green/100 is problematic, compare red/100 applied via the new
-GUI against red/100 via the original recovery to isolate the code path. Do not
-change EC registers or autostart until understood.
+**A/B test update, November 6, 2026:** The user applied **all four
+zones green (`#00FF00`) at WMI brightness 100 through the v0.4 GUI**. Both
+Fn+F9 and Fn+F10 then worked normally **without unexpected color changes**.
+This matches the old red/100 recovery and contrasts with the green/65 test.
+This strongly implicates the chosen WMI brightness value or its interaction
+with the firmware. It does **not** establish an exhaustive supported range,
+prove that arbitrary zone combinations are safe, or isolate the exact firmware
+cause.
+
+**Temporary v0.4 development safeguard:** Native WMI RGB physical apply now
+requires the editor slider to be **100%**. The GUI disables Apply/Restore
+below 100 and explains how to dim with the actual Fn keys. The privileged
+Python helper and kernel PoC independently **reject other brightness values**
+before WMI writes. This is a deliberate guard based on tested hardware
+behavior, **not** a statement that 100 is the only firmware-supported value.
+Other native Linux LED and Linuwu sysfs backends retain their own behavior.
+Do not silently overwrite a requested 65% with 100%; show the limitation.
+
+If the green/100 condition ever causes unexpected colors, capture read-only
+`probe=1` before and after and reopen the brightness hypothesis. Avoid
+repeating known problematic green/65 firmware writes just to reproduce the
+symptom. No automatic startup or EC writes are permitted.
 
 See [issue #2](https://github.com/tobiasGuta/Nitro-Control/issues/2).
 The November 1, 2026 [kernel RFC](https://lists.openwall.net/linux-kernel/2026/11/01/327)
@@ -125,7 +140,7 @@ prove visual illumination.
 
 ```text
 GTK RGB editor (normal user)
-    | choose four #RRGGBB colors + brightness (1..100)
+    | choose four #RRGGBB colors + brightness 100 ONLY for native WMI
     | explicit user confirmation
     v
 RGBClient -> pkexec /usr/local/libexec/nitro-control-rgb-helper
@@ -133,7 +148,7 @@ RGBClient -> pkexec /usr/local/libexec/nitro-control-rgb-helper
     | sha256 + owner/mode + modinfo + running-kernel checks
     v
 insmod /usr/lib/modules/$(uname -r)/extra/nitro-control/nitro_rgb_enable_poc.ko
-       apply=1 colors=RRGGBB,RRGGBB,RRGGBB,RRGGBB brightness=N
+       apply=1 colors=RRGGBB,RRGGBB,RRGGBB,RRGGBB brightness=100
     | one-shot WMI 5 / 2 / 20 / 6, then method-7 firmware readback
     v
 rmmod nitro_rgb_enable_poc    (always attempted)
@@ -213,8 +228,12 @@ Expected with the correct staged module: `"backend": "native-wmi"` and
 
 1. Save your work; close other hardware-control apps.
 2. Open `~/.local/bin/nitro-control` **as your normal user**.
-3. Pick four modest colors (e.g. a uniform green) and 25% brightness.
+3. Pick a simple uniform green (or known-working red) and set the editor
+   brightness to **100%**; the native WMI buttons are unavailable below 100%
+   due to the reported Fn hotkey/color regression.
 4. Use **Restore lighting** or **Apply to keyboard** (never “Apply preview”).
+   After success, adjust **physical** brightness with Fn+F9/Fn+F10; do not
+   use the editor slider below 100 for native WMI initialization.
 5. Confirm the GUI warning; authorize the dedicated Polkit action.
 6. Inspect the actual keyboard, Fn+F9/Fn+F10, fan RPM values and platform
    profile. **Do not assume a green success message guarantees LEDs lit up.**
@@ -281,6 +300,8 @@ build, kernel blacklist, boot service, startup hook, or GRUB modification.
 | “module digest mismatch” | Root-installed module versus digest | Reinstall from reviewed, rebuilt local source |
 | “firmware write failed” | Kernel logs, module still loaded? | Collect log; do not retry blindly |
 | Readback says success but LEDs dark | Actual keyboard, Fn brightness | Record results; do not misreport physical success |
+| Apply/Restore disabled below 100% | Native WMI temporary brightness guard | Set editor to 100%, Apply, then use Fn keys for actual dimming |
+| Fn+F9 changes colors after a WMI apply | Issue #2: color/brightness interaction | Do not repeat 65%; compare read-only WMI states and use known-good 100% workflow |
 | `rmmod` failure | `lsmod` and kernel journal | Stop further tests; recover or reboot to stock driver |
 
 ## Testing and release gates
@@ -299,7 +320,8 @@ Polkit, GUI rendering, reboot or suspend safety. On the AN515-58, test:
 - [ ] Custom WMI module compiles on currently booted kernel.
 - [ ] Controlled 25% uniform color visibly works.
 - [ ] Four independent colors visibly match user selection.
-- [ ] Fn brightness keys still work.
+- [x] Uniform green at 100% retains normal Fn brightness keys on the reference system (2026-11-06).
+- [ ] Four independent colors retain normal Fn brightness behavior.
 - [ ] Stock `acer_wmi`, HWMON fan1/fan2 and platform profiles remain normal.
 - [ ] A denied Polkit prompt results in no physical change.
 - [ ] An invalid/missing module or digest never initiates a WMI call.
