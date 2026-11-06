@@ -15,6 +15,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Validate Python sources
         run: python -m compileall -q nitro_control tests
+      - name: Check safe installer and recovery script syntax
+        run: bash -n scripts/*.sh experiments/acer-wmi-rgb-enable-poc/*.sh
       - name: Run offline sensor tests
         run: python -m unittest discover -s tests -v
       - name: Validate demo JSON without GUI dependencies
