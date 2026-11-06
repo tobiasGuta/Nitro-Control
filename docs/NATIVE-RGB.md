@@ -74,6 +74,14 @@ with the firmware. It does **not** establish an exhaustive supported range,
 prove that arbitrary zone combinations are safe, or isolate the exact firmware
 cause.
 
+**Additional hardware validation, November 6, 2026:** The owner tested
+**a different keyboard color through Nitro-Control v0.4 at WMI brightness
+100** and confirmed that both the color application and Fn brightness
+behavior worked as expected. The exact additional color and whether all
+four zones were independently configured were not reported. This is
+further evidence for the 100%-initialization workaround, **not yet a
+four-distinct-zone qualification**.
+
 **Temporary v0.4 development safeguard:** Native WMI RGB physical apply now
 requires the editor slider to be **100%**. The GUI disables Apply/Restore
 below 100 and explains how to dim with the actual Fn keys. The privileged
@@ -317,11 +325,11 @@ bash -n scripts/install-native-rgb-fedora.sh scripts/uninstall-native-rgb-fedora
 These are **synthetic tests**. They do not prove kernel compilation, real WMI,
 Polkit, GUI rendering, reboot or suspend safety. On the AN515-58, test:
 
-- [ ] Custom WMI module compiles on currently booted kernel.
-- [ ] Controlled 25% uniform color visibly works.
-- [ ] Four independent colors visibly match user selection.
-- [x] Uniform green at 100% retains normal Fn brightness keys on the reference system (2026-11-06).
-- [ ] Four independent colors retain normal Fn brightness behavior.
+- [x] Custom WMI module compiled on Fedora 45 kernel `7.2.15-300.fc45.x86_64` (2026-11-06).
+- [x] Uniform green at WMI initialization brightness 100% visibly works; use Fn keys to dim afterward (2026-11-06).
+- [ ] Four distinct zone colors visibly match the user's selections (not yet confirmed; multiple uniform colors have been tested).
+- [x] Uniform green and another unspecified color at 100% retain normal Fn brightness behavior on the reference system (2026-11-06).
+- [ ] Four independent zone colors retain normal Fn brightness behavior.
 - [ ] Stock `acer_wmi`, HWMON fan1/fan2 and platform profiles remain normal.
 - [ ] A denied Polkit prompt results in no physical change.
 - [ ] An invalid/missing module or digest never initiates a WMI call.
