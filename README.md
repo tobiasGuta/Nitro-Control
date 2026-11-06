@@ -2,9 +2,28 @@
 
 **A native GNOME dashboard for Acer Nitro laptops, initially tested against the AN515-58 interface.**
 
-Version 0.3.0-preview.3 • Python 3.11+ • MIT license
+Version 0.4.0-dev.1 (native RGB experiment; not yet hardware-qualified) • Python 3.11+ • MIT license
 
-Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. It never replaces drivers, calls WMI directly, changes fan PWM, or runs the GUI as root.
+Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. The GUI never runs as root or directly calls WMI. An optional, separately installed native-RGB development backend can execute a root-owned, one-shot WMI kernel module while keeping stock `acer_wmi` loaded. It never writes fan PWM.
+
+## v0.4 development: native AN515-58 RGB while preserving stock Acer monitoring
+
+On November 6, 2026, the **existing isolated red-only PoC** physically restored
+all four keyboard zones on the reference Nitro AN515-58, Fedora 45,
+kernel `7.2.15-300.fc45.x86_64`. The original `acer_wmi` driver, Acer fan
+telemetry and platform profile remained working; Fn+F9/Fn+F10 controlled
+brightness. Simply unloading/reloading `acer_wmi` did not restore the light.
+
+This branch adds an **unqualified experimental** configurable four-zone WMI
+backend, an explicit **Restore lighting** GUI button, and pinned module install
+and uninstall tools. It runs only through a separately installed, administrator
+authorized helper; there is **no automatic boot/suspend recovery**, no
+blacklisting, and no persistent custom module. Its four-color behavior has NOT
+yet been verified on hardware.
+
+See **[Native WMI RGB: architecture, exact install steps, evidence, tests,
+troubleshooting and rollback](docs/NATIVE-RGB.md)**. Do not enable any automatic
+startup procedure before the documented hardware validation gates pass.
 
 ## v0.3: RGB studio and gated physical backend
 
@@ -90,7 +109,7 @@ Tests use a disposable simulated sysfs tree shaped like the AN515-58, plus an in
 ## Safety and privacy
 
 - Hardware monitoring is read-only and runs as your normal desktop user. Power-mode changes occur only after explicit user confirmation.
-- No telemetry, network requests, root GUI, fan curves, or direct EC/WMI calls in the app. The RGB preview is in-memory only; the optional helper writes strictly known RGB sysfs attributes. The separately installed, experimental third-party Linuwu driver interacts with WMI; installing it is an explicit, reversible opt-in.
+- No telemetry, network requests, root GUI, fan curves, or direct EC/WMI calls from the unprivileged GUI. The preview stays in-memory. The optional administrator-authorized native WMI backend runs a separate, locally built and kernel-pinned experimental module for a single apply, then unloads it. The independent third-party Linuwu replacement remains an explicit opt-in fallback.
 - The desktop power-mode operation uses only the standard D-Bus `ActiveProfile` property. The optional RGB path invokes a **root-owned** one-shot helper through `pkexec`; nothing privileged is imported from the user-writable GUI installation.
 - Power Saver, Balanced, and Performance are desktop modes. The five Acer firmware-supported names remain read-only; do not assume a one-to-one mapping.
 - JSON output includes device model and measurements, not hostname, machine ID, MAC address, or exact filesystem paths.
@@ -109,6 +128,7 @@ nitro_control/
   rgb_hardware.py   exact-model, exact-endpoint sysfs RGB adapters
   rgb_client.py     unprivileged client for optional Polkit helper
   rgb_privileged.py root-owned, one-shot RGB entry point
+  native_rgb.py     optional pinned WMI one-shot controller (root helper only for writes)
   models.py         typed immutable snapshots
   demo.py           explicitly labeled example data
 scripts/            per-user install and uninstall
@@ -120,7 +140,8 @@ scripts/            per-user install and uninstall
 - v0.2: Desktop power-mode switching through the standard system service, with confirmation.
 - v0.3 preview.2: Simulated lighting editor, read-only RGB probe, gated hardware adapters and optional Polkit helper.
 - v0.3 preview.3: Physical four-zone and GUI integration validated on the reference laptop; add disabled-by-default, reversible on-demand Fedora driver service.
-- Later: Packaging and broader hardware testing. No requirement to replace a functioning native `acer_wmi` driver.
+- v0.4 development: guard native Acer gaming WMI RGB apply while stock `acer_wmi` remains loaded; document hardware validation, rollback and kernel upgrades.
+- Later: suspend/reboot qualification, explicitly enabled startup recovery (not included yet), packaging and broader hardware testing.
 
 ## References
 
