@@ -250,8 +250,11 @@ from this proof-of-concept before that qualification.
 ## Configurable native backend (v0.4 development branch)
 
 This branch adds `apply=1` with `colors=RRGGBB,RRGGBB,RRGGBB,RRGGBB`
-and `brightness=1..100` to the kernel PoC. Unlike the proven
-`full_test=1` red-only path, **custom-color writes have not yet been verified
+and **`brightness=100` only** to the kernel PoC. The temporary
+restriction avoids a Fedora 45 hotkey regression observed after green/65;
+green/100 preserved normal Fn+F9/Fn+F10 dimming. Physical brightness is
+adjusted afterward using the Fn keys. Unlike the proven
+`full_test=1` red-only path, **arbitrary four independent-zone color combinations have not yet been verified
 physically**. The PoC rejects malformed colors/brightness and checks each
 zone's firmware readback but cannot guarantee physical illumination.
 
