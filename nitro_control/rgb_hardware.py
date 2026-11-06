@@ -1,8 +1,9 @@
 """Constrained AN515-58 RGB adapters for documented kernel sysfs interfaces.
 
-Presence of a WMI GUID is *not* a writable RGB endpoint. We never call ACPI/WMI,
-load modules, or touch fan controls. A privileged, root-owned one-shot helper is
-required for real writes; the unprivileged GUI only probes capabilities.
+Presence of a WMI GUID is *not* a writable RGB endpoint. Normal monitoring
+never calls WMI, loads modules, or touches fan controls. The native-wmi backend
+requires a separately installed root-owned pinned module and one-shot Polkit
+helper; the unprivileged GUI only probes capabilities.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ import re
 
 from . import RGB_WMI_GUID
 from .rgb import LightingPlan
+from .native_rgb import NativeRGB, NativeRGBError
 
 MODEL = "Nitro AN515-58"
 LED_NAMES = tuple(f"acer-wmi::kbd_backlight_{i}" for i in range(1, 5))
@@ -28,7 +30,7 @@ class RGBHardwareError(RuntimeError):
 
 @dataclass(frozen=True, slots=True)
 class RGBCapability:
-    backend: str  # none, native-led, linuwu-sense
+    backend: str  # none, native-led, linuwu-sense, native-wmi
     description: str
     available: bool
     detail: str
@@ -149,6 +151,11 @@ class RGBHardware:
                 return RGBCapability("native-led", "Native Linux multicolor LEDs", True, "Four named Acer keyboard zones detected")
             if self._linuwu():
                 return RGBCapability("linuwu-sense", "Linuwu Sense", True, "Documented four-zone sysfs control detected")
+            native = NativeRGB(self.root)
+            ready, detail = native.status()
+            if ready:
+                return RGBCapability("native-wmi", "Stock Acer WMI + one-shot helper",
+                                     True, detail)
         except RGBHardwareError as exc:
             return RGBCapability("none", "Unavailable", False, str(exc))
         return RGBCapability("none", "Unavailable", False, "WMI GUID present, but no supported RGB sysfs writer is exposed")
@@ -163,6 +170,12 @@ class RGBHardware:
             return self._apply_native(plan)
         if cap.backend == "linuwu-sense":
             return self._apply_linuwu(plan)
+        if cap.backend == "native-wmi":
+            try:
+                detail = NativeRGB(self.root).apply(plan)
+            except NativeRGBError as exc:
+                raise RGBHardwareError(str(exc)) from exc
+            return RGBWriteResult("native-wmi", True, detail)
         raise RGBHardwareError("Unsupported RGB backend")
 
     def _apply_native(self, plan: LightingPlan) -> RGBWriteResult:
