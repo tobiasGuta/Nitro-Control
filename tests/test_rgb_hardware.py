@@ -159,6 +159,33 @@ class RGBClientTests(unittest.TestCase):
                 with self.assertRaisesRegex(RGBHardwareError, "denied"):
                     RGBClient(helper, runner).apply(COLORS)
 
+    def test_pkexec_authorization_denied_without_json_is_failure(self):
+        # Real pkexec denial can return no structured helper stdout.
+        with tempfile.TemporaryDirectory() as tmp:
+            helper = Path(tmp) / "helper"
+            helper.write_text("stub")
+            def runner(argv, **kwargs):
+                self.assertEqual(argv, ["pkexec", str(helper)])
+                return SimpleNamespace(returncode=126, stdout="", stderr="Not authorized")
+            with patch("nitro_control.rgb_client.shutil.which", return_value="/usr/bin/pkexec"):
+                with self.assertRaisesRegex(RGBHardwareError, "denied"):
+                    RGBClient(helper, runner).apply(COLORS)
+
+    def test_helper_must_confirm_readback_and_valid_backend(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            helper = Path(tmp) / "helper"
+            helper.write_text("stub")
+            for payload in (
+                {"ok": True, "verified_readback": False, "backend": "native-wmi"},
+                {"ok": True, "verified_readback": True, "backend": "unknown"},
+            ):
+                with self.subTest(reply=payload):
+                    def runner(argv, **kwargs):
+                        return SimpleNamespace(returncode=0, stdout=json.dumps(payload))
+                    with patch("nitro_control.rgb_client.shutil.which", return_value="/usr/bin/pkexec"):
+                        with self.assertRaises(RGBHardwareError):
+                            RGBClient(helper, runner).apply(COLORS)
+
 
 if __name__ == "__main__":
     unittest.main()
