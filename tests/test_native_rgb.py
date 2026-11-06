@@ -78,7 +78,8 @@ class NativeRGBTests(unittest.TestCase):
         target = self.root / "fake-digest"
         target.write_text("0" * 64)
         self.adapter.digest.symlink_to(target)
-        with patch("nitro_control.native_rgb._run") as run:
+        with (self._pretend_installed_root_owned(),
+              patch("nitro_control.native_rgb._run") as run):
             with self.assertRaisesRegex(NativeRGBError, "symlink"):
                 self.adapter._verify_install()
             run.assert_not_called()
