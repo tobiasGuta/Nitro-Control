@@ -113,6 +113,13 @@ class NativeRGB:
     def apply(self, plan: LightingPlan) -> str:
         if not isinstance(plan, LightingPlan):
             raise NativeRGBError("A validated four-zone lighting plan is required")
+        # Fedora 45 AN515-58 testing: 65% WMI brightness made Fn+F9
+        # change visible colors; 100% preserved normal Fn dimming.
+        # This is a temporary hardware-specific guard, not a protocol limit.
+        if plan.brightness != 100:
+            raise NativeRGBError(
+                "Native Acer WMI currently requires 100% apply brightness; "
+                "use Fn+F9/Fn+F10 for physical dimming")
         if os.geteuid() != 0:
             raise NativeRGBError("Native RGB changes require administrator authorization")
         ready, reason = self.status()
