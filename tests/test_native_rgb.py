@@ -9,6 +9,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+from contextlib import contextmanager
 
 from nitro_control import RGB_WMI_GUID
 from nitro_control.native_rgb import NativeRGB, NativeRGBError
@@ -43,6 +44,126 @@ class NativeRGBTests(unittest.TestCase):
         destination = self.root / path
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text(contents)
+
+    @contextmanager
+    def _pretend_installed_root_owned(self):
+        """Only fake file owner metadata; keep real hashes and file contents."""
+        actual_stat = Path.stat
+        owned = {self.adapter.module, self.adapter.digest}
+
+        def fake_stat(path, *args, **kwargs):
+            original = actual_stat(path, *args, **kwargs)
+            if path in owned:
+                fields = list(original)
+                fields[4] = 0  # st_uid, as with the root-owned installed files
+                fields[0] = (fields[0] & ~0o777) | (
+                    0o644 if path == self.adapter.module else 0o600)
+                return os.stat_result(fields)
+            return original
+
+        with patch("nitro_control.native_rgb.Path.stat", autospec=True,
+                   side_effect=fake_stat):
+            yield
+
+    def test_checksum_tampering_refused_before_any_module_command(self):
+        self.adapter.module.write_bytes(b"tampered development module")
+        with (self._pretend_installed_root_owned(),
+              patch("nitro_control.native_rgb._run") as run):
+            with self.assertRaisesRegex(NativeRGBError, "digest mismatch"):
+                self.adapter._verify_install()
+            run.assert_not_called()
+
+    def test_digest_symlink_refused(self):
+        self.adapter.digest.unlink()
+        target = self.root / "fake-digest"
+        target.write_text("0" * 64)
+        self.adapter.digest.symlink_to(target)
+        with patch("nitro_control.native_rgb._run") as run:
+            with self.assertRaisesRegex(NativeRGBError, "symlink"):
+                self.adapter._verify_install()
+            run.assert_not_called()
+
+    def test_different_kernel_vermagic_refused(self):
+        answers = [
+            subprocess.CompletedProcess(["modinfo"], 0, stdout="nitro_rgb_enable_poc\n"),
+            subprocess.CompletedProcess(["modinfo"], 0, stdout="unrelated-kernel SMP\n"),
+        ]
+        with (self._pretend_installed_root_owned(),
+              patch("nitro_control.native_rgb._run", side_effect=answers) as run):
+            with self.assertRaisesRegex(NativeRGBError, "kernel version mismatch"):
+                self.adapter._verify_install()
+            self.assertEqual(run.call_count, 2)
+
+    def test_corrupted_module_denied_before_insmod_even_for_root(self):
+        self.adapter.module.write_bytes(b"corrupted after install")
+        with (self._pretend_installed_root_owned(),
+              patch("nitro_control.native_rgb.os.geteuid", return_value=0),
+              patch("nitro_control.native_rgb._run") as run):
+            with self.assertRaisesRegex(NativeRGBError, "digest mismatch"):
+                self.adapter.apply(COLORS)
+            run.assert_not_called()
+
+    def test_unsafe_lock_aborts_without_module_operation(self):
+        with (patch("nitro_control.native_rgb.os.geteuid", return_value=0),
+              patch("nitro_control.native_rgb._LOCK", self.root / "lock"),
+              patch.object(self.adapter, "_verify_install"),
+              patch("nitro_control.native_rgb.os.open",
+                    side_effect=PermissionError("lock denied")),
+              patch("nitro_control.native_rgb._run") as run):
+            with self.assertRaisesRegex(NativeRGBError, "lock unavailable"):
+                self.adapter.apply(COLORS)
+            run.assert_not_called()
+
+    def test_busy_lock_prevents_wmi_operation(self):
+        with (patch("nitro_control.native_rgb.os.geteuid", return_value=0),
+              patch("nitro_control.native_rgb._LOCK", self.root / "lock"),
+              patch("nitro_control.native_rgb.os.fstat",
+                    return_value=SimpleNamespace(st_uid=0, st_mode=0o600)),
+              patch("nitro_control.native_rgb.fcntl.flock",
+                    side_effect=BlockingIOError("already locked")),
+              patch.object(self.adapter, "_verify_install"),
+              patch("nitro_control.native_rgb._run") as run):
+            with self.assertRaisesRegex(NativeRGBError, "already active"):
+                self.adapter.apply(COLORS)
+            run.assert_not_called()
+
+    def test_failed_module_insert_with_partial_load_still_unloads(self):
+        commands = []
+        def runner(argv, **kwargs):
+            commands.append(argv[0])
+            if argv[0].endswith("/insmod"):
+                (self.root / "sys/module/nitro_rgb_enable_poc").mkdir()
+                return subprocess.CompletedProcess(argv, 1, stderr="firmware rejected")
+            (self.root / "sys/module/nitro_rgb_enable_poc").rmdir()
+            return subprocess.CompletedProcess(argv, 0)
+
+        with (patch("nitro_control.native_rgb.os.geteuid", return_value=0),
+              patch("nitro_control.native_rgb._LOCK", self.root / "lock"),
+              patch("nitro_control.native_rgb.os.fstat",
+                    return_value=SimpleNamespace(st_uid=0, st_mode=0o600)),
+              patch.object(self.adapter, "_verify_install"),
+              patch("nitro_control.native_rgb._run", side_effect=runner)):
+            with self.assertRaisesRegex(NativeRGBError, "firmware rejected"):
+                self.adapter.apply(COLORS)
+        self.assertEqual(commands, ["/usr/sbin/insmod", "/usr/sbin/rmmod"])
+
+    def test_unload_failure_blocks_success(self):
+        commands = []
+        def runner(argv, **kwargs):
+            commands.append(argv[0])
+            return subprocess.CompletedProcess(
+                argv, 0 if argv[0].endswith("/insmod") else 1,
+                stderr="unload failed" if argv[0].endswith("/rmmod") else "")
+
+        with (patch("nitro_control.native_rgb.os.geteuid", return_value=0),
+              patch("nitro_control.native_rgb._LOCK", self.root / "lock"),
+              patch("nitro_control.native_rgb.os.fstat",
+                    return_value=SimpleNamespace(st_uid=0, st_mode=0o600)),
+              patch.object(self.adapter, "_verify_install"),
+              patch("nitro_control.native_rgb._run", side_effect=runner)):
+            with self.assertRaisesRegex(NativeRGBError, "CRITICAL"):
+                self.adapter.apply(COLORS)
+        self.assertEqual(commands, ["/usr/sbin/insmod", "/usr/sbin/rmmod"])
 
     def test_exact_model_valid_prerequisites(self):
         ok, reason = self.adapter.status()
