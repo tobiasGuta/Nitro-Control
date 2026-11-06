@@ -348,7 +348,7 @@ Polkit, GUI rendering, reboot or suspend safety. On the AN515-58, test:
 - [x] Keyboard illumination/color configuration **survived suspend and resume** on Fedora 45 (user-confirmed 2026-11-06).
 - [ ] After resume, independently recheck Fn+F9/Fn+F10, stock `acer_wmi`, fan1/fan2 telemetry and platform profile.
 - [x] Full reboot: the previously applied four-zone colors were **physically present after logging into Fedora 45** (user-confirmed 2026-11-06), without running the manual RGB recovery.
-- [ ] Determine whether the same colors are already illuminated at the GDM/login screen; user only confirmed post-login state.
+- [x] Same four-zone colors were already illuminated **before GDM/login appeared**, and remained unchanged through login (user-confirmed 2026-11-06).
 - [ ] Confirm reboot behavior on future kernels and over repeated cold starts.
 
 ### Suspend/resume: first successful user report (November 6, 2026)
@@ -362,24 +362,25 @@ reliability from a single successful report.
 
 ### Reboot/login result (November 6, 2026)
 
-**Passed for the logged-in desktop on the reference AN515-58, Fedora 45,
-kernel `7.2.15-300.fc45.x86_64`.** After a full reboot, the owner observed
-that the previously selected four-zone lighting was on with the same colors
-once they logged in. No manual recovery step was run before reporting this
+**Passed for both pre-login and post-login on the reference AN515-58,
+Fedora 45, kernel `7.2.15-300.fc45.x86_64`.** After a full reboot, the
+owner observed that the previously selected four-zone colors were already
+physically illuminated **before the login page appeared**, and remained
+the same after login. No manual recovery step was run before reporting this
 result. Post-reboot command outputs showed `acer_wmi` loaded, no Linuwu or
 temporary PoC module loaded, `native-wmi` capability available (this is
 only a probe, not a hardware write), `platform_profile=balanced`, and the
 old `nitro-control-rgb-driver.service` remained disabled.
 
-**Scope:** This confirms *post-login physical RGB persistence*, not necessarily
-illumination at GDM before login. We have not identified whether the firmware
-retains the state itself or if another desktop component restores it.
-Do not credit a new automatic Nitro-Control startup service; none was added
-in this branch. No unattended startup recovery is justified for the
-already-working post-login path.
+**Scope:** This confirms physical RGB persistence through one reboot,
+including before the GDM login page and after entering the desktop. It does
+**not** establish behavior on every future cold boot, across kernel upgrades,
+or whether the firmware itself versus some early-boot component retains or
+restores the colors. Do not credit a new Nitro-Control startup service; none
+was added in this branch. No unattended startup recovery is currently needed.
 
-The following checks remain useful only if the behavior later regresses or
-for separately validating the pre-login GDM state:
+The following checks remain useful if the behavior later regresses or on a
+future kernel upgrade:
 
 ### Optional controlled reboot/login inspection
 
@@ -415,8 +416,8 @@ The original known-good red-only `restore-after-boot.sh` is an
 alternative manual fallback **only** when compiled for that exact kernel.
 
 Record physical results separately from the software probe. **Do not
-install a boot-recovery service for a post-login scenario already working
-normally.** Pre-login behavior should be tested separately only if desired.
+install a boot-recovery service when the four-zone configuration already
+survives pre-login GDM and login normally.**
 
 **No automatic startup/resume restore is included in this preview.** Keep
 boot autoload disabled. There is no guarantee that a new kernel will be
