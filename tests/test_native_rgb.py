@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import subprocess
 import tempfile
 import unittest
@@ -86,6 +87,8 @@ class NativeRGBTests(unittest.TestCase):
         lock = self.root / "native-rgb.lock"
         with (patch("nitro_control.native_rgb.os.geteuid", return_value=0),
               patch("nitro_control.native_rgb._LOCK", lock),
+              patch("nitro_control.native_rgb.os.fstat",
+                    return_value=SimpleNamespace(st_uid=0, st_mode=0o600)),
               patch.object(self.adapter, "_verify_install"),
               patch("nitro_control.native_rgb._run", side_effect=runner)):
             message = self.adapter.apply(COLORS)
@@ -101,6 +104,8 @@ class NativeRGBTests(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 1, stdout="", stderr="firmware refused")
         with (patch("nitro_control.native_rgb.os.geteuid", return_value=0),
               patch("nitro_control.native_rgb._LOCK", self.root / "lock"),
+              patch("nitro_control.native_rgb.os.fstat",
+                    return_value=SimpleNamespace(st_uid=0, st_mode=0o600)),
               patch.object(self.adapter, "_verify_install"),
               patch("nitro_control.native_rgb._run", side_effect=runner)):
             with self.assertRaisesRegex(NativeRGBError, "firmware refused"):
