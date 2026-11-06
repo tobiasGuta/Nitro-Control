@@ -296,6 +296,13 @@ class NitroWindow(Adw.ApplicationWindow):
         self.rgb_apply_hardware.set_valign(Gtk.Align.CENTER)
         self.rgb_apply_hardware.set_sensitive(False)
         self.rgb_apply_hardware.connect("clicked", self._request_rgb_hardware)
+        self.rgb_restore_hardware = Gtk.Button(label="Restore lighting")
+        self.rgb_restore_hardware.set_tooltip_text(
+            "Reinitialize native Acer lighting using the selected four colors and brightness")
+        self.rgb_restore_hardware.set_valign(Gtk.Align.CENTER)
+        self.rgb_restore_hardware.set_sensitive(False)
+        self.rgb_restore_hardware.connect("clicked", self._request_rgb_hardware)
+        physical_row.add_suffix(self.rgb_restore_hardware)
         physical_row.add_suffix(self.rgb_apply_hardware)
         editor.add(physical_row)
         self.rgb_hardware_status = Adw.ActionRow(
@@ -565,10 +572,10 @@ class NitroWindow(Adw.ApplicationWindow):
         self.rgb_preview_status.set_subtitle("Preview reset to Midnight; hardware unchanged")
 
     def _sync_rgb_hardware_button(self) -> None:
-        self.rgb_apply_hardware.set_sensitive(
-            not self._demo and not self._rgb_hw_busy and
-            self._rgb_status.available and self._rgb_client.ready()
-        )
+        ready = (not self._demo and not self._rgb_hw_busy and
+                 self._rgb_status.available and self._rgb_client.ready())
+        self.rgb_apply_hardware.set_sensitive(ready)
+        self.rgb_restore_hardware.set_sensitive(ready and self._rgb_status.backend == "native-wmi")
 
     def _request_rgb_hardware(self, *_args) -> None:
         if self._demo or self._rgb_hw_busy or not self._rgb_status.available or not self._rgb_client.ready():
@@ -576,9 +583,11 @@ class NitroWindow(Adw.ApplicationWindow):
         plan = self._rgb_draft()
         dialog = Adw.AlertDialog.new(
             "Apply these colors to your physical keyboard?",
-            "This makes an actual hardware change through the detected RGB driver. "
-            "Administrator authentication may be required. Sysfs readback does not prove the LEDs changed: "
-            "visually inspect the keyboard afterward. No fans or power settings will be changed."
+            "This changes physical RGB lighting through an optional authorized backend. "
+            "On native Acer WMI this runs a one-shot kernel module that initializes all zones. "
+            "Administrator authentication may be required. Firmware/sysfs readback "
+            "does not prove the LEDs changed: inspect the keyboard. "
+            "No direct fan or power control is requested."
         )
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("apply", "Apply to keyboard")
@@ -610,7 +619,7 @@ class NitroWindow(Adw.ApplicationWindow):
         if self._closed:
             return False
         self.rgb_hardware_status.set_subtitle(
-            f"Hardware change failed or unverified: {error}" if error else message or "No verified sysfs response"
+            f"Hardware change failed or unverified: {error}" if error else message or "No confirmed software response"
         )
         self._rgb_status = self._rgb_hardware.probe()
         self._sync_rgb_hardware_button()
