@@ -347,7 +347,9 @@ Polkit, GUI rendering, reboot or suspend safety. On the AN515-58, test:
 - [ ] No one-shot module remains loaded after success or failure.
 - [x] Keyboard illumination/color configuration **survived suspend and resume** on Fedora 45 (user-confirmed 2026-11-06).
 - [ ] After resume, independently recheck Fn+F9/Fn+F10, stock `acer_wmi`, fan1/fan2 telemetry and platform profile.
-- [ ] Reboot/login behavior is tested deliberately, with work saved.
+- [x] Full reboot: the previously applied four-zone colors were **physically present after logging into Fedora 45** (user-confirmed 2026-11-06), without running the manual RGB recovery.
+- [ ] Determine whether the same colors are already illuminated at the GDM/login screen; user only confirmed post-login state.
+- [ ] Confirm reboot behavior on future kernels and over repeated cold starts.
 
 ### Suspend/resume: first successful user report (November 6, 2026)
 
@@ -358,7 +360,28 @@ report does not independently establish post-resume fan sensor values or
 Fn-key operation; those remain separate checks. Do not infer repeated-cycle
 reliability from a single successful report.
 
-### Controlled reboot/login check (not yet performed)
+### Reboot/login result (November 6, 2026)
+
+**Passed for the logged-in desktop on the reference AN515-58, Fedora 45,
+kernel `7.2.15-300.fc45.x86_64`.** After a full reboot, the owner observed
+that the previously selected four-zone lighting was on with the same colors
+once they logged in. No manual recovery step was run before reporting this
+result. Post-reboot command outputs showed `acer_wmi` loaded, no Linuwu or
+temporary PoC module loaded, `native-wmi` capability available (this is
+only a probe, not a hardware write), `platform_profile=balanced`, and the
+old `nitro-control-rgb-driver.service` remained disabled.
+
+**Scope:** This confirms *post-login physical RGB persistence*, not necessarily
+illumination at GDM before login. We have not identified whether the firmware
+retains the state itself or if another desktop component restores it.
+Do not credit a new automatic Nitro-Control startup service; none was added
+in this branch. No unattended startup recovery is justified for the
+already-working post-login path.
+
+The following checks remain useful only if the behavior later regresses or
+for separately validating the pre-login GDM state:
+
+### Optional controlled reboot/login inspection
 
 Save all work before rebooting. Keep the legacy
 `nitro-control-rgb-driver.service` **disabled** and do not add any native
@@ -391,13 +414,14 @@ and reinstall for the new running kernel after reviewing the source.
 The original known-good red-only `restore-after-boot.sh` is an
 alternative manual fallback **only** when compiled for that exact kernel.
 
-Record the physical results separately from the software probe. Only
-then consider designing a disabled-by-default boot recovery mechanism,
-subject to its own review and rollback testing.
+Record physical results separately from the software probe. **Do not
+install a boot-recovery service for a post-login scenario already working
+normally.** Pre-login behavior should be tested separately only if desired.
 
-**No automatic startup/resume restore is included in this preview.** Once
-those gates pass, a separate reviewed and explicitly enabled startup service
-can be considered. There is no guarantee that a new kernel will be compatible.
+**No automatic startup/resume restore is included in this preview.** Keep
+boot autoload disabled. There is no guarantee that a new kernel will be
+compatible. Revisit the startup design only if a real, repeatable failure
+is observed and reviewed.
 
 ## Relationship to the older Linuwu backend
 
