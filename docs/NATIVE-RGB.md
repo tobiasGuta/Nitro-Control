@@ -345,8 +345,55 @@ Polkit, GUI rendering, reboot or suspend safety. On the AN515-58, test:
 - [ ] A denied Polkit prompt results in no physical change.
 - [ ] An invalid/missing module or digest never initiates a WMI call.
 - [ ] No one-shot module remains loaded after success or failure.
-- [ ] Suspend/resume is tested deliberately, with work saved.
+- [x] Keyboard illumination/color configuration **survived suspend and resume** on Fedora 45 (user-confirmed 2026-11-06).
+- [ ] After resume, independently recheck Fn+F9/Fn+F10, stock `acer_wmi`, fan1/fan2 telemetry and platform profile.
 - [ ] Reboot/login behavior is tested deliberately, with work saved.
+
+### Suspend/resume: first successful user report (November 6, 2026)
+
+The AN515-58 owner reports that the **previously applied native RGB
+keyboard lighting survives a normal suspend/resume cycle**. This is an
+observed physical result, not merely a successful firmware readback. The
+report does not independently establish post-resume fan sensor values or
+Fn-key operation; those remain separate checks. Do not infer repeated-cycle
+reliability from a single successful report.
+
+### Controlled reboot/login check (not yet performed)
+
+Save all work before rebooting. Keep the legacy
+`nitro-control-rgb-driver.service` **disabled** and do not add any native
+RGB boot service. After restarting, observe the keyboard *before* login
+and *after* the desktop appears, **without pressing Apply first**. Record
+whether the RGB color configuration remains and whether Fn+F9/Fn+F10
+controls physical brightness. Then check:
+
+```bash
+uname -r
+systemctl is-enabled nitro-control-rgb-driver.service
+lsmod | grep -E '^(acer_wmi|linuwu_sense|nitro_rgb_enable_poc)' || true
+cat /sys/firmware/acpi/platform_profile
+for d in /sys/class/hwmon/hwmon*; do
+  if [ "$(cat "$d/name" 2>/dev/null)" = acer ]; then
+    printf '%s fan1=%s fan2=%s\n' "$d" \
+      "$(cat "$d/fan1_input" 2>/dev/null)" \
+      "$(cat "$d/fan2_input" 2>/dev/null)"
+  fi
+done
+~/.local/bin/nitro-control --rgb-probe
+```
+
+If the keyboard is dark, open Nitro Control and use the authorized
+**Restore lighting** operation with editor brightness **100%** to test
+whether native initialization recovers it; this does not require the
+Linuwu driver. If the updated app/helper or pinned module is unavailable
+after a kernel update, **do not force-load a mismatched module**; rebuild
+and reinstall for the new running kernel after reviewing the source.
+The original known-good red-only `restore-after-boot.sh` is an
+alternative manual fallback **only** when compiled for that exact kernel.
+
+Record the physical results separately from the software probe. Only
+then consider designing a disabled-by-default boot recovery mechanism,
+subject to its own review and rollback testing.
 
 **No automatic startup/resume restore is included in this preview.** Once
 those gates pass, a separate reviewed and explicitly enabled startup service
