@@ -1,5 +1,11 @@
 # AN515-58 physical keyboard RGB: development and safety guide
 
+> **For the newly validated stock-driver lighting recovery and the v0.4
+> configurable native-WMI preview**, see [NATIVE-RGB.md](NATIVE-RGB.md). This
+> document primarily describes the older, opt-in Linuwu driver replacement.
+> These two paths must not be active together.
+
+
 ## Validated temporary hardware test (AN515-58)
 
 Reference device: Acer Nitro AN515-58, four-zone RGB keyboard, Fedora 44,
