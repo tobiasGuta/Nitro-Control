@@ -91,18 +91,21 @@ class NativeRGB:
             return False, str(exc)
 
     def _verify_install(self) -> None:
-        for path, expected_mode in ((self.module, 0o644), (self.digest, 0o600)):
-            if path.is_symlink() or not path.is_file():
-                raise NativeRGBError("Native RGB installed file is missing or a symlink")
-            info = path.stat()
-            if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != expected_mode:
-                raise NativeRGBError("Native RGB installed file ownership or mode mismatch")
-        expected = _read(self.digest)
-        if not _HEX_SHA.fullmatch(expected):
-            raise NativeRGBError("Invalid native RGB module digest")
-        actual = hashlib.sha256(self.module.read_bytes()).hexdigest()
-        if actual != expected:
-            raise NativeRGBError("Native RGB module digest mismatch")
+        try:
+            for path, expected_mode in ((self.module, 0o644), (self.digest, 0o600)):
+                if path.is_symlink() or not path.is_file():
+                    raise NativeRGBError("Native RGB installed file is missing or a symlink")
+                info = path.stat()
+                if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != expected_mode:
+                    raise NativeRGBError("Native RGB installed file ownership or mode mismatch")
+            expected = _read(self.digest)
+            if not _HEX_SHA.fullmatch(expected):
+                raise NativeRGBError("Invalid native RGB module digest")
+            actual = hashlib.sha256(self.module.read_bytes()).hexdigest()
+            if actual != expected:
+                raise NativeRGBError("Native RGB module digest mismatch")
+        except OSError as exc:
+            raise NativeRGBError("Native RGB module integrity check could not read installed files") from exc
         mod_name = _run(["/usr/sbin/modinfo", "-F", "name", str(self.module)])
         vermagic = _run(["/usr/sbin/modinfo", "-F", "vermagic", str(self.module)])
         if (mod_name.returncode != 0 or mod_name.stdout.strip() != MOD_NAME or
@@ -128,7 +131,10 @@ class NativeRGB:
         self._verify_install()
 
         # Only one native apply at a time, with an exclusively root-owned lock.
-        fd = os.open(_LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            fd = os.open(_LOCK, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        except OSError as exc:
+            raise NativeRGBError("Native RGB lock unavailable; no firmware writes attempted") from exc
         try:
             info = os.fstat(fd)
             if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600:
