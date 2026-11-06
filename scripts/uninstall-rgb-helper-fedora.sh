@@ -6,6 +6,6 @@ if [[ ${EUID} -ne 0 ]]; then
 fi
 rm -f /usr/local/libexec/nitro-control-rgb-helper
 rm -f /usr/share/polkit-1/actions/io.github.tobiasguta.NitroControl.rgb.policy
-rm -f /usr/local/libexec/nitro-control-rgb/nitro_control/{__init__.py,rgb.py,rgb_hardware.py,rgb_privileged.py}
+rm -f /usr/local/libexec/nitro-control-rgb/nitro_control/{__init__.py,rgb.py,rgb_hardware.py,native_rgb.py,rgb_privileged.py}
 rmdir /usr/local/libexec/nitro-control-rgb/nitro_control /usr/local/libexec/nitro-control-rgb 2>/dev/null || true
 echo 'Removed optional Nitro Control RGB helper. No kernel drivers changed.'
