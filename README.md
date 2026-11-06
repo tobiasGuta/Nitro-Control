@@ -16,7 +16,11 @@ brightness. Simply unloading/reloading `acer_wmi` did not restore the light.
 
 This branch adds an **unqualified experimental** configurable four-zone WMI
 backend, an explicit **Restore lighting** GUI button, and pinned module install
-and uninstall tools. It runs only through a separately installed, administrator
+and uninstall tools. Uniform green at WMI brightness **100** preserved normal
+Fn brightness controls on November 6, 2026, while green/65 caused unexpected
+color changes. Native WMI Apply/Restore therefore now requires **100% in the
+editor**, with a second guard in the privileged backend and kernel module.
+Dim physically afterward with Fn+F9/Fn+F10. It runs only through a separately installed, administrator
 authorized helper; there is **no automatic boot/suspend recovery**, no
 blacklisting, and no persistent custom module. Its four-color behavior has NOT
 yet been verified on hardware.
