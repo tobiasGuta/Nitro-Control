@@ -292,6 +292,7 @@ class NitroWindow(Adw.ApplicationWindow):
         physical_row = Adw.ActionRow(
             title="Physical keyboard", subtitle="Optional root-owned helper; changes require separate confirmation and authentication"
         )
+        self.rgb_physical_row = physical_row
         self.rgb_apply_hardware = Gtk.Button(label="Apply to keyboard")
         self.rgb_apply_hardware.set_valign(Gtk.Align.CENTER)
         self.rgb_apply_hardware.set_sensitive(False)
@@ -574,13 +575,27 @@ class NitroWindow(Adw.ApplicationWindow):
     def _sync_rgb_hardware_button(self) -> None:
         ready = (not self._demo and not self._rgb_hw_busy and
                  self._rgb_status.available and self._rgb_client.ready())
-        self.rgb_apply_hardware.set_sensitive(ready)
-        self.rgb_restore_hardware.set_sensitive(ready and self._rgb_status.backend == "native-wmi")
+        native = self._rgb_status.backend == "native-wmi"
+        # The AN515-58 native backend currently permits only verified 100%
+        # WMI initialization. The physical Fn keys still control dimming.
+        supported_brightness = not native or self._rgb_draft().brightness == 100
+        self.rgb_apply_hardware.set_sensitive(ready and supported_brightness)
+        self.rgb_restore_hardware.set_sensitive(ready and native and supported_brightness)
+        if native:
+            self.rgb_physical_row.set_subtitle(
+                "Native WMI: set slider to 100% to Apply/Restore; dim afterward with Fn+F9/Fn+F10")
+        else:
+            self.rgb_physical_row.set_subtitle(
+                "Optional root-owned helper; changes require confirmation and authentication")
 
     def _request_rgb_hardware(self, *_args) -> None:
         if self._demo or self._rgb_hw_busy or not self._rgb_status.available or not self._rgb_client.ready():
             return
         plan = self._rgb_draft()
+        if self._rgb_status.backend == "native-wmi" and plan.brightness != 100:
+            self.rgb_hardware_status.set_subtitle(
+                "Native Acer WMI requires 100% initialization; use Fn keys for dimming")
+            return
         dialog = Adw.AlertDialog.new(
             "Apply these colors to your physical keyboard?",
             "This changes physical RGB lighting through an optional authorized backend. "
