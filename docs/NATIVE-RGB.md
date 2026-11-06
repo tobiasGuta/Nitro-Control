@@ -40,6 +40,71 @@ suspend/resume; automatic boot recovery; compatibility with other Nitro models,
 other kernels or unmodified upstream driver modules. Firmware readback does
 **not** prove that actual LEDs changed.
 
+### New Fedora 45 hotkey regression report — November 6, 2026
+
+During the first v0.4 authorized native WMI RGB application:
+
+- The module performed the full enable and color sequence, including four
+  **green** zone writes (WMI method 6), with matching method-7 firmware readback.
+- **The actual brightness was 65**, as shown by the kernel log, not the
+  previously suggested 25% test profile.
+- After applying, the original `acer_wmi` remained loaded, fan inputs reported
+  2272/2222 RPM, the platform profile was `balanced`, and the temporary
+  RGB module was unloaded.
+- **User-observed regression:** repeated presses of **Fn+F9** initially dim
+  the keyboard but subsequently cause unexpected changes to keyboard colors,
+  rather than dimming consistently to off.
+- Neither the exact keypress count nor the LED colors or WMI state after the
+  transition have yet been recorded. This is NOT documented as a fixed bug.
+
+See [issue #2](https://github.com/tobiasGuta/Nitro-Control/issues/2).
+The November 1, 2026 [kernel RFC](https://lists.openwall.net/linux-kernel/2026/11/01/327)
+describes independent EC hardware brightness (0..4) and WMI static-zone colors.
+The [May 2026 RFC](https://lkml.iu.edu/2605.0/01657.html)
+mentions keyboard brightness key events lacking release events on this model.
+These are hypotheses to investigate, not verified explanations.
+
+**Do not** mask the keyboard hotkeys, disable the Acer driver, issue raw EC
+writes, or enable automatic RGB reinitialization to hide this regression.
+
+### Safe read-only before/after hotkey check
+
+With your work saved, stock `acer_wmi` running, and neither Linuwu nor
+the temporary RGB module active, run this from the separate feature worktree.
+The `probe=1` module invokes only firmware *get* methods (method 21 for mode
+and brightness, method 7 for all four zone colors). Its **insertion** is not
+the same as the firmware-writing `apply=1` command:
+
+```bash
+cd /mnt/Development/Tools/Nitro-Control-native-rgb/experiments/acer-wmi-rgb-enable-poc
+lsmod | grep -E '^(acer_wmi|linuwu_sense|nitro_rgb_enable_poc)' || true
+systemctl is-active nitro-control-rgb-driver.service || true
+
+# Read-only snapshot before Fn+F9
+sudo insmod ./nitro_rgb_enable_poc.ko probe=1
+sudo rmmod nitro_rgb_enable_poc
+sudo journalctl -k -b --no-pager |
+  grep nitro_rgb_enable_poc | tail -n 12
+
+# Press Fn+F9 a few times, *one short press at a time*.
+# Stop immediately when the colors visibly change.
+
+# Read-only snapshot after Fn+F9
+sudo insmod ./nitro_rgb_enable_poc.ko probe=1
+sudo rmmod nitro_rgb_enable_poc
+sudo journalctl -k -b --no-pager |
+  grep nitro_rgb_enable_poc | tail -n 12
+```
+
+If insertion fails, do not continue. If removal fails, do not attempt another
+insertion; inspect `lsmod` and the kernel journal. Compare the method-21
+keyboard `mode`/`brightness` and method-7 `zone N raw` values. If these
+change, the firmware state itself changed; if unchanged, the separate EC
+brightness control or visual behavior is a candidate. The read-only probe
+does **not** read EC global intensity, and a successful get call does not
+prove visual illumination.
+
+
 ## Architecture and trust boundaries
 
 ```text
