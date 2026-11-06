@@ -16,7 +16,7 @@ from nitro_control.rgb import LightingPlan
 from nitro_control.rgb_hardware import RGBHardware, RGBHardwareError
 
 
-COLORS = LightingPlan(("#FF0000", "#00FF00", "#0000FF", "#ABCDEF"), 25)
+COLORS = LightingPlan(("#FF0000", "#00FF00", "#0000FF", "#ABCDEF"), 100)
 
 
 class NativeRGBTests(unittest.TestCase):
@@ -74,6 +74,18 @@ class NativeRGBTests(unittest.TestCase):
         (self.root / "sys/bus/wmi/devices" / f"{RGB_WMI_GUID}-8").rmdir()
         self.assertFalse(self.adapter.status()[0])
 
+    def test_non_100_brightness_rejected_before_module_operations(self):
+        # Confirm an unverified firmware brightness never reaches insmod, even
+        # for a root caller and a valid staged module.
+        for value in (0, 25, 65, 75, 99):
+            with self.subTest(brightness=value):
+                plan = LightingPlan(COLORS.zones, value)
+                with (patch("nitro_control.native_rgb.os.geteuid", return_value=0),
+                      patch("nitro_control.native_rgb._run") as run):
+                    with self.assertRaisesRegex(NativeRGBError, "requires 100%"):
+                        self.adapter.apply(plan)
+                    run.assert_not_called()
+
     def test_requires_admin_for_physical_apply(self):
         with patch("nitro_control.native_rgb.os.geteuid", return_value=1000):
             with self.assertRaisesRegex(NativeRGBError, "administrator"):
@@ -96,7 +108,7 @@ class NativeRGBTests(unittest.TestCase):
         self.assertEqual(calls[0][0], "/usr/sbin/insmod")
         self.assertEqual(calls[0][1], str(self.adapter.module))
         self.assertEqual(calls[0][2:], [
-            "apply=1", "colors=FF0000,00FF00,0000FF,ABCDEF", "brightness=25"])
+            "apply=1", "colors=FF0000,00FF00,0000FF,ABCDEF", "brightness=100"])
         self.assertEqual(calls[1], ["/usr/sbin/rmmod", "nitro_rgb_enable_poc"])
 
     def test_write_failure_does_not_report_success(self):
