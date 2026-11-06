@@ -57,6 +57,22 @@ During the first v0.4 authorized native WMI RGB application:
 - Neither the exact keypress count nor the LED colors or WMI state after the
   transition have yet been recorded. This is NOT documented as a fixed bug.
 
+**Critical A/B clarification:** Earlier on this same kernel the *manual red-only*
+`restore-after-boot.sh` sequence (RGB `FF0000` in all zones, WMI brightness
+100) **left Fn+F9/Fn+F10 working normally**. The unexpected color changes
+were observed **only after the new configurable Nitro-Control GUI apply**
+(`00FF00` in all zones, WMI brightness 65). Both workflows use WMI methods
+5, 2, 20, and 6. Prioritize **color/brightness interaction in our new
+configuration**, not a presumed Fedora/global hotkey issue.
+
+Controlled test: compare **green/100** against the known-good **red/100**
+baseline, using the GUI for the green apply; if green/100 behaves normally,
+compare **green/65**. Use one short Fn+F9 press at a time, stop at the first
+unexpected color change, and record read-only `probe=1` before/after WMI
+state. If even green/100 is problematic, compare red/100 applied via the new
+GUI against red/100 via the original recovery to isolate the code path. Do not
+change EC registers or autostart until understood.
+
 See [issue #2](https://github.com/tobiasGuta/Nitro-Control/issues/2).
 The November 1, 2026 [kernel RFC](https://lists.openwall.net/linux-kernel/2026/11/01/327)
 describes independent EC hardware brightness (0..4) and WMI static-zone colors.
