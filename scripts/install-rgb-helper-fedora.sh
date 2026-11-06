@@ -19,7 +19,7 @@ if [[ $# -gt 1 ]]; then
   exit 2
 fi
 install -d -m 755 /usr/local/libexec/nitro-control-rgb/nitro_control
-for file in __init__.py rgb.py rgb_hardware.py rgb_privileged.py; do
+for file in __init__.py rgb.py rgb_hardware.py native_rgb.py rgb_privileged.py; do
   install -o root -g root -m 644 "nitro_control/$file" "/usr/local/libexec/nitro-control-rgb/nitro_control/$file"
 done
 cat > /usr/local/libexec/nitro-control-rgb-helper <<'PY'

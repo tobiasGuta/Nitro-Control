@@ -38,6 +38,6 @@ class RGBClient:
         if proc.returncode != 0 or not isinstance(reply, dict) or reply.get("ok") is not True or reply.get("verified_readback") is not True:
             message = reply.get("error", "RGB helper did not confirm the write") if isinstance(reply, dict) else "Invalid response"
             raise RGBHardwareError(message)
-        if reply.get("backend") not in {"native-led", "linuwu-sense"}:
+        if reply.get("backend") not in {"native-led", "linuwu-sense", "native-wmi"}:
             raise RGBHardwareError("RGB helper returned an unrecognized backend")
         return str(reply.get("detail", "Sysfs readback verified; inspect the physical keyboard"))

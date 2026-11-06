@@ -2,9 +2,44 @@
 
 **A native GNOME dashboard for Acer Nitro laptops, initially tested against the AN515-58 interface.**
 
-Version 0.3.0-preview.3 • Python 3.11+ • MIT license
+Version 0.4.0-preview.1 (opt-in Acer WMI RGB, hardware-validated on a reference AN515-58 only) • Python 3.11+ • MIT license
 
-Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. It never replaces drivers, calls WMI directly, changes fan PWM, or runs the GUI as root.
+Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. The GUI never runs as root or directly calls WMI. An optional, separately installed native-RGB development backend can execute a root-owned, one-shot WMI kernel module while keeping stock `acer_wmi` loaded. It never writes fan PWM.
+
+## v0.4.0-preview.1: native AN515-58 RGB while preserving stock Acer monitoring
+
+On November 6, 2026, the **existing isolated red-only PoC** physically restored
+all four keyboard zones on the reference Nitro AN515-58, Fedora 45,
+kernel `7.2.15-300.fc45.x86_64`. The original `acer_wmi` driver, Acer fan
+telemetry and platform profile remained working; Fn+F9/Fn+F10 controlled
+brightness. Simply unloading/reloading `acer_wmi` did not restore the light.
+
+This preview adds an **opt-in experimental** configurable four-zone WMI
+backend, an explicit **Restore lighting** GUI button, and pinned module install
+and uninstall tools. Uniform green at WMI brightness **100** preserved normal
+Fn brightness controls on November 6, 2026, while green/65 caused unexpected
+color changes. Native WMI Apply/Restore therefore now requires **100% in the
+editor**, with a second guard in the privileged backend and kernel module.
+Dim physically afterward with Fn+F9/Fn+F10. It runs only through a separately
+installed, administrator-authorized helper; there is **no automatic boot or
+suspend recovery**, no blacklisting, and no permanently loaded custom module.
+
+**Physically verified, November 6, 2026:** the reference AN515-58 on Fedora 45
+successfully displayed four distinct colors, retained functional Fn brightness
+keys, kept stock `acer_wmi` and fan telemetry working, survived one
+suspend/resume cycle, and retained its selected colors before GDM and after
+login across one reboot. This does not guarantee other models, kernels or
+future cold boots. Root-module/Polkit failure-path tests are synthetic;
+live authentication denial and forced module-failure cases remain untested.
+
+See **[Native WMI RGB: architecture, exact install steps, evidence, tests,
+troubleshooting and rollback](docs/NATIVE-RGB.md)** and
+**[v0.4.0-preview.1 release notes](docs/RELEASE-v0.4-preview.1.md)**.
+This feature is not installed just by launching the dashboard: the
+current-kernel development module and root-owned Polkit helper require
+separate, explicit installation. Never use `make install` from Linuwu
+Sense or enable automatic kernel module loading. Startup RGB recovery
+is not needed on the verified reference laptop.
 
 ## v0.3: RGB studio and gated physical backend
 
@@ -90,7 +125,7 @@ Tests use a disposable simulated sysfs tree shaped like the AN515-58, plus an in
 ## Safety and privacy
 
 - Hardware monitoring is read-only and runs as your normal desktop user. Power-mode changes occur only after explicit user confirmation.
-- No telemetry, network requests, root GUI, fan curves, or direct EC/WMI calls in the app. The RGB preview is in-memory only; the optional helper writes strictly known RGB sysfs attributes. The separately installed, experimental third-party Linuwu driver interacts with WMI; installing it is an explicit, reversible opt-in.
+- No telemetry, network requests, root GUI, fan curves, or direct EC/WMI calls from the unprivileged GUI. The preview stays in-memory. The optional administrator-authorized native WMI backend runs a separate, locally built and kernel-pinned experimental module for a single apply, then unloads it. The independent third-party Linuwu replacement remains an explicit opt-in fallback.
 - The desktop power-mode operation uses only the standard D-Bus `ActiveProfile` property. The optional RGB path invokes a **root-owned** one-shot helper through `pkexec`; nothing privileged is imported from the user-writable GUI installation.
 - Power Saver, Balanced, and Performance are desktop modes. The five Acer firmware-supported names remain read-only; do not assume a one-to-one mapping.
 - JSON output includes device model and measurements, not hostname, machine ID, MAC address, or exact filesystem paths.
@@ -109,6 +144,7 @@ nitro_control/
   rgb_hardware.py   exact-model, exact-endpoint sysfs RGB adapters
   rgb_client.py     unprivileged client for optional Polkit helper
   rgb_privileged.py root-owned, one-shot RGB entry point
+  native_rgb.py     optional pinned WMI one-shot controller (root helper only for writes)
   models.py         typed immutable snapshots
   demo.py           explicitly labeled example data
 scripts/            per-user install and uninstall
@@ -120,7 +156,8 @@ scripts/            per-user install and uninstall
 - v0.2: Desktop power-mode switching through the standard system service, with confirmation.
 - v0.3 preview.2: Simulated lighting editor, read-only RGB probe, gated hardware adapters and optional Polkit helper.
 - v0.3 preview.3: Physical four-zone and GUI integration validated on the reference laptop; add disabled-by-default, reversible on-demand Fedora driver service.
-- Later: Packaging and broader hardware testing. No requirement to replace a functioning native `acer_wmi` driver.
+- v0.4.0-preview.1: opt-in guarded native Acer gaming WMI RGB while stock `acer_wmi` stays loaded; exact-model hardware tests, rollback and upgrade documentation.
+- Later: suspend/reboot qualification, explicitly enabled startup recovery (not included yet), packaging and broader hardware testing.
 
 ## References
 
@@ -147,9 +184,9 @@ The four-zone studio continues working **without any new driver or privilege**. 
 /usr/bin/python3 -m nitro_control --rgb-probe
 ```
 
-With the stock Acer kernel driver, the read-only RGB probe reports `"available": false`. The reference laptop now has a separately validated Linuwu Sense four-zone writer during explicitly managed sessions; with that driver loaded, the probe reports `"available": true`. Never mistake the WMI GUID alone for a writable endpoint.
+With stock `acer_wmi` and **no separately staged native WMI helper**, the read-only RGB probe reports `"available": false`. When the guarded native WMI module is installed for the current kernel and the model/driver/HWMON checks pass, it can report `"backend": "native-wmi"` without loading the module. The reference laptop also validated a separate Linuwu Sense four-zone sysfs writer during explicitly managed sessions. Never mistake the WMI GUID alone for a writable endpoint.
 
-The optional adapters recognize *only* these existing, documented sysfs
+The **legacy sysfs adapters** recognize only these existing, documented sysfs
 interfaces, on the exact model and WMI GUID:
 
 - Four native `acer-wmi::kbd_backlight_1` through `_4` Linux multicolor LED
@@ -158,8 +195,10 @@ interfaces, on the exact model and WMI GUID:
 - Linuwu Sense's documented `four_zoned_kb/per_zone_mode` endpoint, accepting
   exactly four RGB hex colors and brightness.
 
-Native multicolor LEDs are preferred if both are present. Unsupported, partial,
-malformed, or absent backends fail closed. No unknown GUID calls, direct EC
+Native multicolor LEDs are preferred when present. After the legacy sysfs
+backends, the v0.4 opt-in native WMI controller is recognized only with its
+current-kernel, root-owned staged module and strict Acer HWMON prerequisites.
+Unsupported, partial, malformed, or absent backends fail closed. No unknown GUID calls, direct EC
 access, kernel compilation, fan writes, or automatic driver installation are included in the GUI. A separate opt-in installer provides an explicitly managed, current-kernel-only module session; fan monitoring and desktop power controls remain separate.
 
 **Once a supported writer exists**, an optional administrator-owned helper may

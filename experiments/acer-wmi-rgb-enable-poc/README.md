@@ -1,0 +1,265 @@
+# AN515-58 RGB-enable proof of concept
+
+This experiment is intentionally isolated from Nitro Control's normal runtime.
+
+It tests one narrow hypothesis discovered on the reference Acer Nitro AN515-58:
+
+- stock `acer_wmi` with HWMON enabled exposes Acer fan telemetry but the keyboard
+  backlight turns off during Linux startup;
+- `acer_wmi.force_caps=1024` keeps the keyboard working but removes Acer HWMON;
+- the May 2026 upstream RFC for AN515-58 RGB support explicitly polls the Acer
+  gaming WMI interface and then enables all four keyboard zones after HWMON init.
+
+The module in this directory supports a default dry run, an explicit read-only
+firmware-state probe, and the earlier two-call enable experiment. It does **not**
+replace `acer_wmi`, expose RGB sysfs devices, install itself, autoload, modify
+GRUB, or touch fan controls.
+
+## Safety properties
+
+- exact DMI gate: `Acer` + `Nitro AN515-58`;
+- exact Acer gaming WMI GUID gate;
+- default insertion is a dry run and performs no WMI method calls;
+- no MODULE_DEVICE_TABLE / modalias, service, install target, or boot persistence;
+- unloading does not send another firmware command.
+
+A firmware/WMI call can still behave unexpectedly. Test only on the reference
+AN515-58 and keep the normal stock `acer_wmi` configuration.
+
+## Build
+
+```bash
+cd experiments/acer-wmi-rgb-enable-poc
+make
+modinfo ./nitro_rgb_enable_poc.ko
+```
+
+## Preconditions
+
+Before the live test, verify stock `acer_wmi` and Acer HWMON are active:
+
+```bash
+uname -r
+lsmod | grep '^acer_wmi'
+cat /proc/cmdline
+for d in /sys/class/hwmon/hwmon*; do
+    [ "$(cat "$d/name" 2>/dev/null)" = "acer" ] && echo "$d : acer"
+done
+```
+
+Do not run this while the Linuwu replacement driver/service is active.
+
+## Dry-run insertion
+
+```bash
+sudo insmod ./nitro_rgb_enable_poc.ko
+sudo journalctl -k -b --no-pager | tail -n 30
+sudo rmmod nitro_rgb_enable_poc
+```
+
+Expected log:
+
+```text
+nitro_rgb_enable_poc: dry run only; model and WMI GUID validated
+```
+
+## Read-only firmware-state probe
+
+After the dry run succeeds, inspect what the firmware reports while stock
+`acer_wmi` and Acer HWMON remain active:
+
+```bash
+sudo insmod ./nitro_rgb_enable_poc.ko probe=1
+sudo journalctl -k -b --no-pager | grep -i nitro_rgb_enable_poc
+sudo rmmod nitro_rgb_enable_poc
+```
+
+This uses the keyboard-state and per-zone **get** methods only. It does not set
+colors or brightness.
+
+## Live one-shot enable test
+
+Only after the dry run succeeds:
+
+```bash
+sudo insmod ./nitro_rgb_enable_poc.ko enable=1
+sudo journalctl -k -b --no-pager | tail -n 40
+```
+
+Immediately inspect the physical keyboard. Then confirm Acer fan telemetry and
+the platform profile still exist:
+
+```bash
+echo "=== ACER HWMON ==="
+for d in /sys/class/hwmon/hwmon*; do
+    name="$(cat "$d/name" 2>/dev/null)"
+    if [ "$name" = "acer" ]; then
+        echo "$d : $name"
+        find "$d" -maxdepth 1 -type f \
+          \( -name 'fan*_input' -o -name 'temp*_input' -o -name 'pwm*' \) \
+          -print -exec cat {} \; 2>/dev/null
+    fi
+done
+
+echo
+echo "=== PLATFORM PROFILE ==="
+cat /sys/firmware/acpi/platform_profile 2>&1
+```
+
+Finally unload the proof-of-concept:
+
+```bash
+sudo rmmod nitro_rgb_enable_poc
+```
+
+The firmware state may remain until another firmware/driver action or reboot.
+That is expected; the module deliberately does not issue a restore command.
+
+## What success means
+
+If the keyboard turns back on while Acer HWMON and platform profiles remain
+available, the project has a strong basis for replacing the current
+`acer_wmi`/Linuwu handoff with a native AN515-58 RGB path.
+
+This experiment does **not** yet solve Fn+F9/Fn+F10 brightness handling or
+register the four multicolor LED zones.
+
+
+## Static-red RFC method-6 test
+
+Use this only after the dry run and read-only probe have succeeded.
+
+The read-only probe on the reference AN515-58 showed a nonzero global
+brightness but zero RGB data for all four zones while the physical keyboard
+was dark. This test therefore follows the RFC's actual static LED write path:
+it enables all four zones and writes RGB `255,0,0` to zone masks
+`0x1,0x2,0x4,0x8` using WMI method 6.
+
+```bash
+sudo insmod ./nitro_rgb_enable_poc.ko red_test=1
+sudo journalctl -k -b --no-pager | grep -i nitro_rgb_enable_poc | tail -n 20
+sudo rmmod nitro_rgb_enable_poc
+```
+
+This leaves stock `acer_wmi` and Acer HWMON loaded. If the physical keyboard
+turns red while fan telemetry remains present, that demonstrates that the RGB
+write path can coexist with stock HWMON on this machine.
+
+The module does not persist or restore the prior lighting state. Reboot if a
+firmware state needs to be reset before further experiments.
+
+
+## Method-20 activation isolation test
+
+If method 6 stores RGB values but the physical keyboard remains dark, use this
+test before trying a full Linuwu-style write sequence.
+
+The module first reads the current keyboard and per-zone firmware state, then
+issues only the 16-byte keyboard-backlight setup used by Linuwu-Sense for
+static mode with brightness 25, and finally reads the state again.
+
+It intentionally does **not** rewrite the four zone colors during this test.
+
+```bash
+sudo insmod ./nitro_rgb_enable_poc.ko backlight_test=1
+sudo journalctl -k -b --no-pager | grep -i nitro_rgb_enable_poc | tail -n 30
+sudo rmmod nitro_rgb_enable_poc
+```
+
+If the previous static-red method-6 test is still stored by firmware, this test
+can reveal whether method 20 is the missing physical-light activation step. If
+method 20 clears or changes the stored zone values, the before/after probe will
+show that and the next experiment should use the complete method-20 + method-6
+sequence.
+
+## Complete initialization experiment (October 2026 kernel patch)
+
+Use `full_test=1` only once per boot after confirming the Acer fan readings
+are still available and the Linuwu replacement driver/service is inactive.
+
+This is a *firmware-writing* test (not a dry run). On the exact AN515-58 it:
+
+1. reads current keyboard mode, brightness, and four-zone firmware state;
+2. issues gaming-WMI method 5 (poll) and method 2 (enable zones);
+3. configures static mode at brightness 100 using a 16-byte method-20 input;
+4. sets all four zones red with **8-byte method-6 inputs** following the
+   October 2026 AN515-58 Linux patch / Linuwu encoding, checking WMI responses;
+5. reads current firmware state again.
+
+The test does not unload/replace stock `acer_wmi`, does not control fan speeds,
+and does not install or enable a service. A success log only confirms software
+observations: you must still inspect the physical LEDs.
+
+```bash
+make clean && make
+modinfo ./nitro_rgb_enable_poc.ko | grep '^parm:'
+lsmod | grep '^nitro_rgb_enable_poc ' || echo "test module unloaded"
+sudo insmod ./nitro_rgb_enable_poc.ko full_test=1
+sudo journalctl -k -b --no-pager | grep nitro_rgb_enable_poc | tail -n 32
+sudo rmmod nitro_rgb_enable_poc
+```
+
+Expected result, if the hypothesis is correct: keyboard visibly red and Acer
+HWMON and platform profile still working. The firmware state may persist beyond
+module unload. Do not repeat or install this automatically. On failure, collect
+logs and visually observed behavior before planning another experiment.
+
+### Correction to the earlier experiment
+
+The earlier PoC mistakenly used gaming-WMI **method 4** to try to enable
+all four zones. The October 2026 patch and JafarAkhondali driver identify
+**method 2** as the *set* command and method 4 as the *get* command. The
+new `full_test=1` sequence uses method 2. That earlier experiment therefore
+did **not** establish that the controller-enable operation had occurred.
+
+## Confirmed hardware result and guarded recovery
+
+On October 15, 2026, the reference Acer Nitro AN515-58 running Fedora 44
+kernel `7.2.9-201.fc44.x86_64` **physically illuminated all four zones**
+after `full_test=1`. Firmware readback confirmed red in all zones and
+brightness 100. The lighting stayed on after unloading the experimental
+module; both Fn brightness keys worked without changing the colors. Stock
+`acer_wmi` remained loaded, Acer fan1/fan2 RPM and three temperature sensors
+were readable, and the platform profile remained balanced.
+
+This confirms *manual* recovery, not reboot or resume persistence. For a
+controlled **post-reboot manual recovery**, a guarded helper now replays only
+the successful full initialization sequence:
+
+```bash
+# After rebooting normally, only if the keyboard is dark:
+cd /mnt/Development/Tools/Nitro-Control/experiments/acer-wmi-rgb-enable-poc
+make clean && make
+sudo bash ./restore-after-boot.sh
+sudo journalctl -k -b --no-pager | grep nitro_rgb_enable_poc | tail -n 18
+```
+
+The helper refuses non-AN515-58 hardware, unsupported/mismatched kernel module,
+missing stock Acer HWMON fan telemetry, conflicting Linuwu service/module, and
+non-default `acer_wmi.force_caps`. It does not load any driver except the
+temporary experimental module, which is automatically unloaded even if a
+post-check fails. It configures **all four zones red at brightness 100** and
+does not preserve other colors or brightness choices.
+
+The recovery helper does **not** install, enable, or schedule anything on boot.
+After verifying the recovery works on a clean reboot, the next milestone is a
+separately reviewed, explicitly enabled, reversible startup mechanism that can
+survive ordinary Fedora kernel updates. Do not enable unattended boot actions
+from this proof-of-concept before that qualification.
+
+## Configurable native backend (v0.4 development branch)
+
+This branch adds `apply=1` with `colors=RRGGBB,RRGGBB,RRGGBB,RRGGBB`
+and **`brightness=100` only** to the kernel PoC. The temporary
+restriction avoids a Fedora 45 hotkey regression observed after green/65;
+green/100 preserved normal Fn+F9/Fn+F10 dimming. Physical brightness is
+adjusted afterward using the Fn keys. Unlike the proven
+`full_test=1` red-only path, **arbitrary four independent-zone color combinations have not yet been verified
+physically**. The PoC rejects malformed colors/brightness and checks each
+zone's firmware readback but cannot guarantee physical illumination.
+
+Do **not** call `insmod` with these arguments directly as a routine action.
+Use the separate pinned, integrity-checked, Polkit-protected backend documented
+in [Native RGB](../../docs/NATIVE-RGB.md). It keeps stock `acer_wmi` loaded,
+runs one authorized transaction, and attempts to unload the module. No boot
+autoload is included; a known-good red-only manual recovery remains available.

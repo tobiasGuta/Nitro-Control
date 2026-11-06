@@ -1,4 +1,8 @@
-"""One-shot root-owned RGB helper. No shell, paths, module controls or fan writes."""
+"""One-shot root-owned RGB helper. No shell or fan writes.
+
+The opt-in native WMI backend temporarily loads a verified, kernel-pinned
+module and always attempts to unload it after a firmware transaction.
+"""
 from __future__ import annotations
 
 import json
