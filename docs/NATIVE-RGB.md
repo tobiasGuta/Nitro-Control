@@ -74,13 +74,24 @@ with the firmware. It does **not** establish an exhaustive supported range,
 prove that arbitrary zone combinations are safe, or isolate the exact firmware
 cause.
 
-**Additional hardware validation, November 6, 2026:** The owner tested
-**a different keyboard color through Nitro-Control v0.4 at WMI brightness
-100** and confirmed that both the color application and Fn brightness
-behavior worked as expected. The exact additional color and whether all
-four zones were independently configured were not reported. This is
-further evidence for the 100%-initialization workaround, **not yet a
-four-distinct-zone qualification**.
+**Four-zone hardware validation, November 6, 2026:** The owner confirms
+that a **four-different-color configuration** was physically applied through
+Nitro-Control v0.4 **at WMI initialization brightness 100**, that the four
+zone colors appeared as expected, and that Fn+F9/Fn+F10 continued working
+normally without unexpected color changes. The provided GUI screenshot shows
+the *Midnight* editor palette:
+
+- Zone 1: `#5931B5`
+- Zone 2: `#4536B6`
+- Zone 3: `#245A9B`
+- Zone 4: `#16869B`
+
+The screenshot itself shows the editor's *current draft* at 65% with physical
+Apply disabled; it is **not evidence of the brightness sent previously**.
+The earlier user-reported physical four-zone test was at 100%.
+This completes the manual four-different-zone and brightness-hotkey test on
+this single Fedora 45 machine, **not** suspend/resume, reboot, or support
+for untested WMI brightness values.
 
 **Temporary v0.4 development safeguard:** Native WMI RGB physical apply now
 requires the editor slider to be **100%**. The GUI disables Apply/Restore
@@ -327,9 +338,9 @@ Polkit, GUI rendering, reboot or suspend safety. On the AN515-58, test:
 
 - [x] Custom WMI module compiled on Fedora 45 kernel `7.2.15-300.fc45.x86_64` (2026-11-06).
 - [x] Uniform green at WMI initialization brightness 100% visibly works; use Fn keys to dim afterward (2026-11-06).
-- [ ] Four distinct zone colors visibly match the user's selections (not yet confirmed; multiple uniform colors have been tested).
-- [x] Uniform green and another unspecified color at 100% retain normal Fn brightness behavior on the reference system (2026-11-06).
-- [ ] Four independent zone colors retain normal Fn brightness behavior.
+- [x] Four distinct zone colors visibly match the selected Midnight palette after 100% initialization on the reference AN515-58 (user-confirmed 2026-11-06).
+- [x] Uniform green at 100% retains normal Fn brightness behavior on the reference system (2026-11-06).
+- [x] Four independent zone colors retain normal Fn brightness behavior after 100% initialization (user-confirmed 2026-11-06).
 - [ ] Stock `acer_wmi`, HWMON fan1/fan2 and platform profiles remain normal.
 - [ ] A denied Polkit prompt results in no physical change.
 - [ ] An invalid/missing module or digest never initiates a WMI call.
