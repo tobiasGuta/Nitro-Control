@@ -68,6 +68,19 @@ module_param(full_test, bool, 0400);
 MODULE_PARM_DESC(full_test,
 	"Explicit one-shot method 5/2 + 20 + four u64 method-6 red writes (default: false)");
 
+/* Opt-in configurable four-zone application. No service or boot autoload. */
+static bool apply;
+module_param(apply, bool, 0400);
+MODULE_PARM_DESC(apply, "Apply validated per-zone static RGB; requires colors and brightness");
+
+static char colors[28] = "FF0000,FF0000,FF0000,FF0000";
+module_param_string(colors, colors, sizeof(colors), 0400);
+MODULE_PARM_DESC(colors, "Four six-digit RRGGBB hex values separated by commas");
+
+static unsigned int brightness = 100;
+module_param(brightness, uint, 0400);
+MODULE_PARM_DESC(brightness, "Static brightness 1-100 for apply=1");
+
 static bool nitro_exact_model(void)
 {
 	const char *vendor = dmi_get_system_info(DMI_SYS_VENDOR);
@@ -386,6 +399,86 @@ static int nitro_full_static_red_test(void)
 	return nitro_probe_keyboard_state();
 }
 
+static int nitro_parse_colors(u8 zones[4][3])
+{
+	int i, j, hi, lo;
+
+	if (strlen(colors) != 27 || brightness < 1 || brightness > 100)
+		return -EINVAL;
+	for (i = 0; i < 4; ++i) {
+		if (i < 3 && colors[i * 7 + 6] != ',')
+			return -EINVAL;
+		for (j = 0; j < 3; ++j) {
+			hi = hex_to_bin(colors[i * 7 + j * 2]);
+			lo = hex_to_bin(colors[i * 7 + j * 2 + 1]);
+			if (hi < 0 || lo < 0)
+				return -EINVAL;
+			zones[i][j] = (hi << 4) | lo;
+		}
+	}
+	return 0;
+}
+
+static int nitro_verify_colors(const u8 zones[4][3])
+{
+	static const u8 zone_ids[] = { 1, 2, 4, 8 };
+	int i;
+	u64 raw;
+	u32 rgb;
+	acpi_status status;
+
+	for (i = 0; i < 4; ++i) {
+		raw = 0;
+		status = nitro_wmi_call_u64(ACER_WMID_GET_GAMING_RGB_KB_METHODID,
+					    zone_ids[i], &raw);
+		if (ACPI_FAILURE(status))
+			return -EIO;
+		rgb = ((u32)zones[i][0] << 16) |
+		      ((u32)zones[i][1] << 8) | zones[i][2];
+		if ((u32)raw != cpu_to_be32(rgb)) {
+			pr_err("nitro_rgb_enable_poc: zone %d firmware readback differs (got=0x%08x wanted=0x%08x)\n",
+			       i + 1, (u32)raw, cpu_to_be32(rgb));
+			return -EIO;
+		}
+	}
+	pr_info("nitro_rgb_enable_poc: all four firmware color readbacks match (verify physical LEDs)\n");
+	return 0;
+}
+
+static int nitro_apply_custom(void)
+{
+	static const u8 zone_ids[] = { 1, 2, 4, 8 };
+	u8 zones[4][3];
+	int ret, i;
+
+	ret = nitro_parse_colors(zones);
+	if (ret) {
+		pr_err("nitro_rgb_enable_poc: invalid colors or brightness for apply=1\n");
+		return ret;
+	}
+	ret = nitro_probe_keyboard_state();
+	if (ret)
+		return ret;
+	ret = nitro_enable_zones();
+	if (ret)
+		return ret;
+	ret = nitro_set_kb_backlight_static((u8)brightness);
+	if (ret)
+		return ret;
+	for (i = 0; i < 4; ++i) {
+		ret = nitro_set_static_zone_u64(zone_ids[i],
+						zones[i][0], zones[i][1], zones[i][2]);
+		if (ret)
+			return ret;
+	}
+	ret = nitro_verify_colors(zones);
+	if (ret)
+		return ret;
+	pr_info("nitro_rgb_enable_poc: custom RGB apply accepted at brightness=%u; visually inspect keyboard\n",
+		brightness);
+	return 0;
+}
+
 static int __init nitro_rgb_enable_poc_init(void)
 {
 	int ret;
@@ -400,12 +493,12 @@ static int __init nitro_rgb_enable_poc_init(void)
 		return -ENODEV;
 	}
 
-	if ((!!probe + !!enable + !!red_test + !!backlight_test + !!full_test) > 1) {
+	if ((!!probe + !!enable + !!red_test + !!backlight_test + !!full_test + !!apply) > 1) {
 		pr_err("nitro_rgb_enable_poc: specify at most one test mode\n");
 		return -EINVAL;
 	}
 
-	if (!probe && !enable && !red_test && !backlight_test && !full_test) {
+	if (!probe && !enable && !red_test && !backlight_test && !full_test && !apply) {
 		pr_info("nitro_rgb_enable_poc: dry run only; model and WMI GUID validated\n");
 		pr_info("nitro_rgb_enable_poc: use probe=1 for read-only firmware-state inspection\n");
 		return 0;
@@ -429,6 +522,9 @@ static int __init nitro_rgb_enable_poc_init(void)
 
 	if (full_test)
 		return nitro_full_static_red_test();
+
+	if (apply)
+		return nitro_apply_custom();
 
 	if (red_test)
 		return nitro_static_red_test();
