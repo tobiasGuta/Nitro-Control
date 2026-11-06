@@ -341,7 +341,7 @@ Polkit, GUI rendering, reboot or suspend safety. On the AN515-58, test:
 - [x] Four distinct zone colors visibly match the selected Midnight palette after 100% initialization on the reference AN515-58 (user-confirmed 2026-11-06).
 - [x] Uniform green at 100% retains normal Fn brightness behavior on the reference system (2026-11-06).
 - [x] Four independent zone colors retain normal Fn brightness behavior after 100% initialization (user-confirmed 2026-11-06).
-- [ ] Stock `acer_wmi`, HWMON fan1/fan2 and platform profiles remain normal.
+- [x] Stock `acer_wmi` and `balanced` platform profile were observed after native apply and after reboot; Acer fan1/fan2 telemetry read 2272/2222 RPM after apply; user also confirmed fans physically working (2026-11-06). This does not validate manual fan PWM control.
 - [ ] A denied Polkit prompt results in no physical change.
 - [ ] An invalid/missing module or digest never initiates a WMI call.
 - [ ] No one-shot module remains loaded after success or failure.
@@ -359,6 +359,15 @@ observed physical result, not merely a successful firmware readback. The
 report does not independently establish post-resume fan sensor values or
 Fn-key operation; those remain separate checks. Do not infer repeated-cycle
 reliability from a single successful report.
+
+### Fan preservation (November 6, 2026)
+
+The owner separately confirmed that the laptop's fans are operating normally
+while the native Acer RGB backend and stock `acer_wmi` are used. Earlier
+post-apply checks read `fan1=2272 RPM` and `fan2=2222 RPM` from Acer
+HWMON, with the firmware profile `balanced`. This supports preservation of
+fan operation and telemetry. It does **not** prove that Nitro-Control controls
+manual fan PWM or fan curves; this RGB backend does not write either.
 
 ### Reboot/login result (November 6, 2026)
 
