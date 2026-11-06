@@ -168,9 +168,9 @@ The four-zone studio continues working **without any new driver or privilege**. 
 /usr/bin/python3 -m nitro_control --rgb-probe
 ```
 
-With the stock Acer kernel driver, the read-only RGB probe reports `"available": false`. The reference laptop now has a separately validated Linuwu Sense four-zone writer during explicitly managed sessions; with that driver loaded, the probe reports `"available": true`. Never mistake the WMI GUID alone for a writable endpoint.
+With stock `acer_wmi` and **no separately staged native WMI helper**, the read-only RGB probe reports `"available": false`. When the guarded native WMI module is installed for the current kernel and the model/driver/HWMON checks pass, it can report `"backend": "native-wmi"` without loading the module. The reference laptop also validated a separate Linuwu Sense four-zone sysfs writer during explicitly managed sessions. Never mistake the WMI GUID alone for a writable endpoint.
 
-The optional adapters recognize *only* these existing, documented sysfs
+The **legacy sysfs adapters** recognize only these existing, documented sysfs
 interfaces, on the exact model and WMI GUID:
 
 - Four native `acer-wmi::kbd_backlight_1` through `_4` Linux multicolor LED
@@ -179,8 +179,10 @@ interfaces, on the exact model and WMI GUID:
 - Linuwu Sense's documented `four_zoned_kb/per_zone_mode` endpoint, accepting
   exactly four RGB hex colors and brightness.
 
-Native multicolor LEDs are preferred if both are present. Unsupported, partial,
-malformed, or absent backends fail closed. No unknown GUID calls, direct EC
+Native multicolor LEDs are preferred when present. After the legacy sysfs
+backends, the v0.4 opt-in native WMI controller is recognized only with its
+current-kernel, root-owned staged module and strict Acer HWMON prerequisites.
+Unsupported, partial, malformed, or absent backends fail closed. No unknown GUID calls, direct EC
 access, kernel compilation, fan writes, or automatic driver installation are included in the GUI. A separate opt-in installer provides an explicitly managed, current-kernel-only module session; fan monitoring and desktop power controls remain separate.
 
 **Once a supported writer exists**, an optional administrator-owned helper may
