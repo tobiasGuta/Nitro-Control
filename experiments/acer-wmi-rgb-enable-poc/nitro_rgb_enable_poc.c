@@ -80,7 +80,7 @@ MODULE_PARM_DESC(colors, "Four six-digit RRGGBB hex values separated by commas")
 
 static unsigned int brightness = 100;
 module_param(brightness, uint, 0400);
-MODULE_PARM_DESC(brightness, "Static brightness 1-100 for apply=1");
+MODULE_PARM_DESC(brightness, "Development safety gate: apply=1 currently requires brightness=100");
 
 static bool nitro_exact_model(void)
 {
@@ -404,7 +404,7 @@ static int nitro_parse_colors(u8 zones[4][3])
 {
 	int i, j, hi, lo;
 
-	if (strlen(colors) != 27 || brightness < 1 || brightness > 100)
+	if (strlen(colors) != 27 || brightness != 100)
 		return -EINVAL;
 	for (i = 0; i < 4; ++i) {
 		if (i < 3 && colors[i * 7 + 6] != ',')
@@ -454,7 +454,7 @@ static int nitro_apply_custom(void)
 
 	ret = nitro_parse_colors(zones);
 	if (ret) {
-		pr_err("nitro_rgb_enable_poc: invalid colors or brightness for apply=1\n");
+		pr_err("nitro_rgb_enable_poc: invalid colors or brightness (100 required) for apply=1\n");
 		return ret;
 	}
 	ret = nitro_probe_keyboard_state();
