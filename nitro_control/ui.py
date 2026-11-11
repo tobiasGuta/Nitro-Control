@@ -14,6 +14,9 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from . import APP_ID, __version__
 from .demo import demo_snapshot
 from .hardware import HardwareReader
+from .fan_presentation import fan_display_name, fan_mode_description
+from .monitor_history import MonitorHistory
+from .dashboard_visuals import FanDial, RGBZoneStrip, TelemetryGraph, section
 from .models import Snapshot
 from .profiles import DISPLAY, PowerProfileController, PowerState
 from .rgb import LightingPlan, PRESETS, PreviewBackend
@@ -23,16 +26,64 @@ from .rgb_hardware import RGBHardware, RGBCapability
 REFRESH_SECONDS = 4
 
 CSS = """
-window.nitro-window { background: #10141d; }
-.metric-card { background: #1b2230; border: 1px solid #303c50; border-radius: 16px; }
-.metric-caption { color: #a5b3c8; font-size: 12px; font-weight: 600; }
-.metric-value { color: #f5f8ff; font-size: 31px; font-weight: 700; }
-.metric-detail { color: #a5b3c8; font-size: 12px; }
-.hero-title { color: #f5f8ff; font-size: 27px; font-weight: 750; }
-.hero-subtitle { color: #9bacbf; }
-.info-note { color: #9bacbf; font-size: 12px; }
-.status-ok { color: #8ddcbe; }
-.status-alert { color: #eacb8b; }
+/* Original Nitro-Control interpretation of the supplied NitroSense reference.
+   All indicators represent real data; no mocked control states or fan buttons. */
+window.nitro-window { background: #09090d; color: #eeeeef; }
+headerbar { background: #15151a; border-bottom: 1px solid #3a2026; }
+.nitro-brand { color: #f0f0f0; font-size: 20px; font-weight: 800; letter-spacing: 5px; }
+.nitro-section {
+    background-color: #101013;
+    /* Repeated 4px steel/scanline shading layered above graphite. These
+       are decorative CSS backgrounds, not any hardware measurement. */
+    background-image:
+        linear-gradient(to bottom, rgba(255,255,255,0.026), transparent 55%, rgba(0,0,0,0.07)),
+        linear-gradient(to bottom, #252529, #111115 14%, #080809 67%, #101014);
+    background-size: 100% 4px, 100% 100%;
+    background-repeat: repeat-y, no-repeat;
+    border: 1px solid #555358;
+    border-radius: 6px 7px 18px 18px;
+    box-shadow: inset 0 1px rgba(255,255,255,0.16), 0 4px 15px rgba(0,0,0,0.45);
+    padding: 0px 5px 7px;
+}
+.metric-card {
+    background: #141419;
+    border: 1px solid #333339;
+    border-radius: 6px;
+}
+.metric-caption { color: #afafb3; font-size: 11px; font-weight: 700; }
+.metric-value { color: #f7f7f7; font-size: 25px; font-weight: 800; }
+.metric-detail { color: #88888e; font-size: 11px; }
+.hero-title { color: #e5e5e8; font-size: 17px; font-weight: 700; letter-spacing: 2px; }
+.hero-subtitle { color: #a5a5ad; font-size: 12px; }
+.info-note { color: #aaaab1; font-size: 11px; }
+.status-ok { color: #b6d5bf; }
+.status-alert { color: #f0a36d; }
+.nitro-power-picker { background: #222226; border-radius: 5px; padding: 8px; }
+.nitro-power-status { color: #a9a9b2; font-size: 12px; }
+.nitro-panel-hint { color: #b5b5bc; font-size: 12px; }
+.nitro-divider { background: #38383e; min-height: 1px; }
+.nitro-telemetry { color: #ef3b48; font-weight: 750; font-size: 21px; }
+.nitro-fan-mode { color: #f04450; font-size: 16px; font-weight: 750; }
+.nitro-fan-mode.nitro-fan-muted { color: #a7a7ae; font-size: 14px; }
+.nitro-fan-status { background: rgba(43,43,48,0.30); border-bottom: 1px solid #35353a; padding: 7px 9px; }
+.nitro-panel-value { color: #e9e9ea; font-size: 14px; font-weight: 650; }
+.nitro-section-note { color: #b2b2b8; font-size: 12px; }
+.nitro-safety-hint { color: #ffba7d; font-size: 12px; font-weight: 700; }
+.nitro-panel-caption { color: #cfced3; font-size: 12px; font-weight: 750; letter-spacing: 1px; }
+.nitro-panel-group { margin: 0; }
+.nitro-panel-group row { background-color: #19191e; }
+.nitro-panel-group row:hover { background-color: #222228; }
+
+.nitro-readonly { color: #8e8e95; font-size: 11px; font-weight: 600; }
+.nitro-accent { color: #eb3546; font-size: 12px; font-weight: 700; }
+stack { background: #09090d; }
+stackswitcher button:checked { color: #ef4654; }
+button.suggested-action { background: #a6202d; color: #fff; }
+button.suggested-action:disabled {
+    background: #28282d;
+    color: #777780;
+    box-shadow: none;
+}
 """
 
 
@@ -65,6 +116,24 @@ def _metric_card(title: str, icon: str) -> tuple[Gtk.Widget, Gtk.Label, Gtk.Labe
     return frame, value, hint
 
 
+def _panel_group(title: str, description: str,
+                 group: Adw.PreferencesGroup) -> Gtk.Widget:
+    """Present existing Libadwaita rows inside the dashboard's steel panel.
+
+    The wrapped rows preserve their original widgets, signals and permissions.
+    Move titles/descriptions into the panel shell to avoid doubled headings.
+    """
+    group.set_title("")
+    group.set_description("")
+    group.add_css_class("nitro-panel-group")
+    body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=11)
+    note = _label(description, css="nitro-section-note")
+    note.set_wrap(True)
+    body.append(note)
+    body.append(group)
+    return section(title, body)
+
+
 def _readout_row(title: str, subtitle: str = "") -> tuple[Adw.ActionRow, Gtk.Label]:
     row = Adw.ActionRow(title=title, subtitle=subtitle)
     row.set_use_markup(False)
@@ -87,10 +156,11 @@ def _number(value: float | None, unit: str) -> str:
 
 class NitroWindow(Adw.ApplicationWindow):
     def __init__(self, application: Adw.Application, *, demo: bool = False):
-        super().__init__(application=application, title="Nitro Control", default_width=920, default_height=760)
+        super().__init__(application=application, title="Nitro Control", default_width=1260, default_height=850)
         self.add_css_class("nitro-window")
         self._demo = demo
         self._reader = HardwareReader()
+        self._history = MonitorHistory()
         self._rgb_preview = PreviewBackend()
         self._rgb_hardware = RGBHardware()
         self._rgb_client = RGBClient()
@@ -109,33 +179,72 @@ class NitroWindow(Adw.ApplicationWindow):
         self.connect("close-request", self._on_close)
         self._build()
         self._request_refresh()
+        self._fan_last_tick_us = GLib.get_monotonic_time()
+        # ~30 FPS is solely for decorative Cairo drawing; actual sensor RPM
+        # is still read on the separate four-second hardware refresh cycle.
+        GLib.timeout_add(33, self._on_fan_animation_tick)
         GLib.timeout_add_seconds(REFRESH_SECONDS, self._on_timer)
 
     def _build(self) -> None:
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        header.set_title_widget(Adw.WindowTitle.new("Nitro Control", "Fedora hardware dashboard"))
+        title = _label("NITRO CONTROL", css="nitro-brand")
+        title.set_xalign(0.5)
+        header.set_title_widget(title)
         refresh = Gtk.Button.new_from_icon_name("view-refresh-symbolic")
-        refresh.set_tooltip_text("Refresh readings")
+        refresh.set_tooltip_text("Refresh real sensor readings")
         refresh.connect("clicked", lambda *_: self._request_refresh())
         header.pack_end(refresh)
-        toolbar.add_top_bar(header)
 
-        scroll = Gtk.ScrolledWindow()
-        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        clamp = Adw.Clamp(maximum_size=960, tightening_threshold=680)
-        scroll.set_child(clamp)
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
-        content.set_margin_top(26)
-        content.set_margin_bottom(28)
-        content.set_margin_start(22)
-        content.set_margin_end(22)
-        clamp.set_child(content)
-        toolbar.set_content(scroll)
+        # Keep the existing controls, with their original permission checks,
+        # on separate pages. The reference-inspired landing page is monitoring.
+        stack = Gtk.Stack()
+        stack.set_vexpand(True)
+        stack.set_vhomogeneous(False)
+        self._page_stack = stack
+        switcher = Gtk.StackSwitcher()
+        switcher.set_stack(stack)
+        header.pack_start(switcher)
+        toolbar.add_top_bar(header)
+        toolbar.set_content(stack)
         self.set_content(toolbar)
 
+        def page(key: str, title: str) -> Gtk.Box:
+            scroll = Gtk.ScrolledWindow()
+            scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            scroll.set_hexpand(True)
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+            inner.set_hexpand(True)
+            inner.set_halign(Gtk.Align.FILL)
+            for side in ("top", "bottom", "start", "end"):
+                getattr(inner, f"set_margin_{side}")(20)
+            if key == "dashboard":
+                # Let the dashboard content grow to fill spare *vertical*
+                # space as well as horizontal space. Its graph panels take
+                # extra height; the status header and fan dials stay compact.
+                inner.set_vexpand(True)
+                inner.set_valign(Gtk.Align.FILL)
+                # A max-width Adw.Clamp centered the dashboard on a maximized
+                # desktop and left wide unused black gutters at both edges.
+                # The dashboard's fixed-width left status column and expanding
+                # monitoring pane can fill the actual available viewport.
+                scroll.set_child(inner)
+            else:
+                # Long settings and RGB edit rows remain comfortably readable.
+                clamp = Adw.Clamp(maximum_size=1100, tightening_threshold=750)
+                clamp.set_hexpand(True)
+                clamp.set_child(inner)
+                scroll.set_child(clamp)
+            stack.add_titled(scroll, key, title)
+            return inner
+
+        content = page("dashboard", "Dashboard")
+        hardware_content = page("hardware", "Hardware details")
+        lighting_content = page("lighting", "Keyboard RGB")
+        stack.set_visible_child_name("dashboard")
+
         top = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        top.append(_label("Your Nitro, at a glance", css="hero-title"))
+        top.append(_label("SYSTEM MONITORING", css="hero-title"))
         self.model_label = _label("Detecting hardware…", css="hero-subtitle")
         top.append(self.model_label)
         status_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
@@ -147,24 +256,104 @@ class NitroWindow(Adw.ApplicationWindow):
         top.append(status_row)
         content.append(top)
 
-        tiles = Gtk.FlowBox()
-        tiles.set_selection_mode(Gtk.SelectionMode.NONE)
-        tiles.set_min_children_per_line(1)
-        tiles.set_max_children_per_line(2)
-        tiles.set_column_spacing(12)
-        tiles.set_row_spacing(12)
-        tiles.set_homogeneous(True)
-        for key, title, icon in (
-            ("cpu", "CPU package", "cpu-symbolic"),
-            ("gpu", "NVIDIA GPU", "video-display-symbolic"),
-            ("fan1", "Fan 1", "weather-windy-symbolic"),
-            ("fan2", "Fan 2", "weather-windy-symbolic"),
+        # The reference's large upper fan section: two turbines and a passive
+        # mode readout, not copied Max/Custom control buttons.
+        fans = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
+        fans.set_hexpand(True)
+        fan_info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        fan_info.set_size_request(230, -1)
+        fan_info.append(_label("FAN STATUS", css="nitro-accent"))
+        fan_info.append(_label("Live RPM · control mode may be unavailable", css="nitro-readonly"))
+        # Show the *reported* fan modes here. The large dial is the sole
+        # numerical RPM readout; repeating it at the left obscured the
+        # reference's control/status hierarchy.
+        self.fan1_value = _label("—", css="nitro-fan-mode")
+        self.fan1_hint = _label("Waiting for Fan 1", css="metric-detail")
+        self.fan2_value = _label("—", css="nitro-fan-mode")
+        self.fan2_hint = _label("Waiting for Fan 2", css="metric-detail")
+        self.fan_mode_titles = []
+        for name, value, hint in (
+            ("FAN 1 · MODE", self.fan1_value, self.fan1_hint),
+            ("FAN 2 · MODE", self.fan2_value, self.fan2_hint),
         ):
-            card, value, hint = _metric_card(title, icon)
-            setattr(self, f"{key}_value", value)
-            setattr(self, f"{key}_hint", hint)
-            tiles.append(card)
-        content.append(tiles)
+            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            row.add_css_class("nitro-fan-status")
+            mode_title = _label(name, css="metric-caption")
+            self.fan_mode_titles.append(mode_title)
+            row.append(mode_title)
+            row.append(value)
+            hint.set_wrap(True)
+            row.append(hint)
+            fan_info.append(row)
+        fan_info.append(_label("No manual fan speed control", css="nitro-readonly"))
+        fans.append(fan_info)
+        self.fan_dials = (FanDial("Fan 1"), FanDial("Fan 2"))
+        for dial in self.fan_dials:
+            fans.append(dial)
+        content.append(section("Fan monitoring", fans, min_height=285))
+
+        lower = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        lower.set_valign(Gtk.Align.FILL)
+        lower.set_hexpand(True)
+        lower.set_vexpand(True)
+        content.append(lower)
+
+        # A compact left column is important to match the reference: broad
+        # monitoring graphs belong on the RIGHT. Adw.PreferencesGroup's long
+        # descriptions previously forced this column to more than half width.
+        self.power_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.power_panel.set_size_request(268, -1)
+        power_section = section("Power mode", self.power_panel, fill_height=True)
+        power_section.set_hexpand(False)
+        lower.append(power_section)
+
+        monitors = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
+        monitors.set_hexpand(True)
+        monitors.set_vexpand(True)
+        monitors.set_size_request(470, -1)
+        # The reference uses the graphs as the dominant elements, not
+        # oversized dashboard metric tiles. Keep readable values in a slim
+        # header strip; the full series remains in the two large charts.
+        metric_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=25)
+        for name, title in (("cpu", "CPU PACKAGE"), ("gpu", "NVIDIA GPU")):
+            metric = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            metric.set_hexpand(True)
+            metric.append(_label(title, css="metric-caption"))
+            value = _label("—", css="nitro-telemetry")
+            hint = _label("Waiting for sensors", css="metric-detail")
+            hint.set_ellipsize(Pango.EllipsizeMode.END)
+            metric.append(value)
+            metric.append(hint)
+            metric_row.append(metric)
+            setattr(self, f"{name}_value", value)
+            setattr(self, f"{name}_hint", hint)
+        monitors.append(metric_row)
+        self.cpu_graph = TelemetryGraph("CPU · package temperature", "cpu_celsius")
+        self.gpu_graph = TelemetryGraph(
+            "GPU · temperature / utilization", "gpu_celsius", "gpu_utilization_percent")
+        self.cpu_graph.set_vexpand(True)
+        self.gpu_graph.set_vexpand(True)
+        monitors.append(self.cpu_graph)
+        monitors.append(self.gpu_graph)
+        monitoring_section = section("Live monitoring", monitors, fill_height=True)
+        monitoring_section.set_hexpand(True)
+        lower.append(monitoring_section)
+
+        footer = _label(
+            "Real hardware readings only  •  Fans read-only  •  "
+            "Power mode changes require confirmation  •  Nitro Control v" + __version__,
+            css="info-note")
+        footer.set_wrap(True)
+        content.append(footer)
+
+        hardware_content.append(_label("HARDWARE DETAILS", css="hero-title"))
+        hardware_content.append(_label(
+            "Real telemetry only · unidentified sensors stay unidentified",
+            css="hero-subtitle"))
+        lighting_content.append(_label("KEYBOARD LIGHTING", css="hero-title"))
+        lighting_content.append(_label(
+            "Four-zone preview is simulated · physical lighting requires explicit authorization",
+            css="hero-subtitle"))
 
         self.gpu_group = Adw.PreferencesGroup(title="Graphics", description="NVIDIA readings are optional; the dashboard remains usable without nvidia-smi.")
         self.gpu_rows = {}
@@ -173,7 +362,9 @@ class NitroWindow(Adw.ApplicationWindow):
             row, val = _readout_row(title)
             self.gpu_group.add(row)
             self.gpu_rows[key] = val
-        content.append(self.gpu_group)
+        hardware_content.append(_panel_group(
+            "Graphics", "Optional NVIDIA information, read-only. Missing GPU data is not estimated.",
+            self.gpu_group))
 
         profile_group = Adw.PreferencesGroup(title="Performance", description="Read-only firmware and TuneD state. Firmware state is read-only.")
         self.profile_rows = {}
@@ -186,29 +377,53 @@ class NitroWindow(Adw.ApplicationWindow):
         self.firmware_choices_row.set_subtitle_lines(0)
         self.firmware_choices_row.set_subtitle("Checking firmware capabilities…")
         profile_group.add(self.firmware_choices_row)
-        content.append(profile_group)
+        hardware_content.append(_panel_group(
+            "Performance", "Acer firmware and TuneD state are read-only; no raw firmware-mode controls.",
+            profile_group))
 
-        power_group = Adw.PreferencesGroup(
-            title="Desktop power mode",
-            description="Use Fedora's standard power-profile service. These three GNOME modes are not the five raw Acer firmware modes.",
-        )
-        self.power_combo = Adw.ComboRow(title="GNOME power mode", subtitle="Choose a mode, then apply it")
-        self.power_combo.set_model(Gtk.StringList.new(["Unavailable"]))
+        # These are the SAME advertised GNOME profile options and the SAME
+        # explicit apply/confirm path. Only the wide Adw row is replaced with
+        # a compact native GTK selector and status label.
+        self.power_panel.append(_label("DESKTOP POWER PROFILE", css="nitro-accent"))
+        self.power_panel.append(_label(
+            "Only modes offered by Fedora's power-profile service.",
+            css="nitro-panel-hint"))
+        power_picker = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+        power_picker.add_css_class("nitro-power-picker")
+        power_picker.append(_label("Select system profile", css="metric-caption"))
+        self.power_combo = Gtk.DropDown.new_from_strings(["Unavailable"])
+        self.power_combo.set_hexpand(True)
         self.power_combo.set_sensitive(False)
         self.power_combo.connect("notify::selected", self._on_power_selection)
-        power_group.add(self.power_combo)
-        apply_row = Adw.ActionRow(title="Apply selected mode", subtitle="Requires confirmation; the system may ask for authorization")
-        self.power_apply = Gtk.Button(label="Apply")
+        power_picker.append(self.power_combo)
+        self.power_apply = Gtk.Button(label="Apply selected mode")
         self.power_apply.add_css_class("suggested-action")
-        self.power_apply.set_valign(Gtk.Align.CENTER)
         self.power_apply.set_sensitive(False)
         self.power_apply.connect("clicked", self._request_power_change)
-        apply_row.add_suffix(self.power_apply)
-        power_group.add(apply_row)
-        self.power_status = Adw.ActionRow(title="Status", subtitle="Checking power-profile service…")
-        self.power_status.set_subtitle_lines(0)
-        power_group.add(self.power_status)
-        content.append(power_group)
+        power_picker.append(self.power_apply)
+        self.power_panel.append(power_picker)
+        self.power_panel.append(_label("STATUS", css="metric-caption"))
+        self.power_status = _label(
+            "Checking power-profile service…", css="nitro-power-status")
+        self.power_status.set_wrap(True)
+        self.power_status.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        self.power_status.set_max_width_chars(32)
+        self.power_panel.append(self.power_status)
+        self.power_panel.append(_label(
+            "Fan RPM: read-only · Acer firmware profiles: read-only",
+            css="nitro-readonly"))
+        # Real, read-only values fill the panel's previously blank lower area.
+        # Neither the firmware profile nor TuneD is changed by this UI.
+        self.power_panel.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        self.power_panel.append(_label("ACER FIRMWARE PROFILE", css="metric-caption"))
+        self.overview_firmware_value = _label("Checking…", css="nitro-panel-value")
+        self.overview_firmware_value.set_wrap(True)
+        self.power_panel.append(self.overview_firmware_value)
+        self.power_panel.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        self.power_panel.append(_label("TUNED PROFILE", css="metric-caption"))
+        self.overview_tuned_value = _label("Checking…", css="nitro-panel-value")
+        self.overview_tuned_value.set_wrap(True)
+        self.power_panel.append(self.overview_tuned_value)
 
         cooling_group = Adw.PreferencesGroup(title="Cooling", description="Fan readings are passive. Firmware remains in control of the fans.")
         self.fan_rows = []
@@ -216,7 +431,9 @@ class NitroWindow(Adw.ApplicationWindow):
             row, val = _readout_row(f"Fan {i + 1}")
             cooling_group.add(row)
             self.fan_rows.append((row, val))
-        content.append(cooling_group)
+        hardware_content.append(_panel_group(
+            "Cooling", "Real fan RPM only. Firmware keeps control; no manual PWM operations.",
+            cooling_group))
 
         thermal_group = Adw.PreferencesGroup(title="Temperature sensors", description="Unlabeled Acer firmware sensors are not guessed to be CPU or GPU.")
         self.thermal_rows = []
@@ -224,7 +441,9 @@ class NitroWindow(Adw.ApplicationWindow):
             row, val = _readout_row(f"Sensor {i + 1}")
             thermal_group.add(row)
             self.thermal_rows.append((row, val))
-        content.append(thermal_group)
+        hardware_content.append(_panel_group(
+            "Temperature sensors", "Unknown Acer sensors remain unidentified; drive temperatures use reported labels.",
+            thermal_group))
 
         rgb_group = Adw.PreferencesGroup(title="Keyboard lighting", description="Physical Apply is available only when a compatible RGB driver and authorized helper are present.")
         rgb_row, self.rgb_value = _readout_row("Acer RGB WMI interface")
@@ -235,7 +454,15 @@ class NitroWindow(Adw.ApplicationWindow):
         self.rgb_capability = Adw.ActionRow(title="Physical lighting", subtitle="Checking for a supported RGB control endpoint…")
         self.rgb_capability.set_subtitle_lines(0)
         rgb_group.add(self.rgb_capability)
-        content.append(rgb_group)
+        lighting_content.append(_panel_group(
+            "RGB hardware status", "The gaming WMI device may have no permanently bound driver; "
+            "the native helper is loaded only for an authorized operation.",
+            rgb_group))
+
+        # Purely graphical representation of the editor's *draft* colors.
+        # These tiles never suggest that firmware readback was performed.
+        self.rgb_strip = RGBZoneStrip()
+        lighting_content.append(section("Draft keyboard palette", self.rgb_strip))
 
         # The preview is in memory; physical Apply follows a separate authorized path.
         editor = Adw.PreferencesGroup(
@@ -275,6 +502,14 @@ class NitroWindow(Adw.ApplicationWindow):
         self.rgb_brightness.connect("value-changed", self._on_rgb_edit)
         brightness_row.add_suffix(self.rgb_brightness)
         editor.add(brightness_row)
+        self.rgb_native_hint = Adw.ActionRow(
+            title="Why is physical Apply disabled?",
+            subtitle="Native WMI requires 100% editor brightness to initialize the controller; "
+                     "after applying, use Fn+F9/Fn+F10 to dim."
+        )
+        self.rgb_native_hint.set_subtitle_lines(0)
+        self.rgb_native_hint.set_visible(False)
+        editor.add(self.rgb_native_hint)
         preview_row = Adw.ActionRow(title="Simulated lighting", subtitle="No firmware, sysfs or WMI writes")
         apply_preview = Gtk.Button(label="Apply preview")
         apply_preview.add_css_class("suggested-action")
@@ -311,12 +546,15 @@ class NitroWindow(Adw.ApplicationWindow):
         )
         self.rgb_hardware_status.set_subtitle_lines(0)
         editor.add(self.rgb_hardware_status)
-        content.append(editor)
+        lighting_content.append(_panel_group(
+            "Four-zone RGB studio", "Preset and color edits are a local draft. "
+            "Apply preview never touches the keyboard; physical Apply/Restore requires permission.",
+            editor))
         self._set_rgb_editor(self._rgb_preview.current())
 
         note = _label("Fans remain read-only  •  Preview is simulated; physical Apply uses a detected driver and administrator-authorized helper  •  Nitro Control v" + __version__, css="info-note")
         note.set_wrap(True)
-        content.append(note)
+        lighting_content.append(note)
 
     def _on_close(self, *_args) -> bool:
         self._closed = True
@@ -326,6 +564,19 @@ class NitroWindow(Adw.ApplicationWindow):
         if self._closed:
             return False
         self._request_refresh()
+        return True
+
+    def _on_fan_animation_tick(self) -> bool:
+        if self._closed:
+            return False
+        now_us = GLib.get_monotonic_time()
+        elapsed_seconds = max(0.0, (now_us - self._fan_last_tick_us) / 1_000_000)
+        self._fan_last_tick_us = now_us
+        # Hidden pages and unmapped windows do not need frame redraws.
+        # Keeping the clock current avoids a big rotation jump on return.
+        if self.get_mapped() and self._page_stack.get_visible_child_name() == "dashboard":
+            for dial in self.fan_dials:
+                dial.animate(elapsed_seconds)
         return True
 
     def _request_refresh(self) -> None:
@@ -390,7 +641,7 @@ class NitroWindow(Adw.ApplicationWindow):
                 self._power_choices = ()
                 self.power_combo.set_model(Gtk.StringList.new(["Unavailable"]))
                 self.power_combo.set_sensitive(False)
-                self.power_status.set_subtitle(error or "Power-profile service unavailable")
+                self.power_status.set_text(error or "Power-profile service unavailable")
             else:
                 if self._power_feedback_profile and state.active != self._power_feedback_profile:
                     self._power_feedback = None
@@ -402,7 +653,7 @@ class NitroWindow(Adw.ApplicationWindow):
                 chosen = prior if prior in state.choices and prior != old_active else state.active
                 self.power_combo.set_selected(state.choices.index(chosen))
                 self.power_combo.set_sensitive(not self._demo and not self._power_busy)
-                self.power_status.set_subtitle(
+                self.power_status.set_text(
                     "Demo only — power changes disabled" if self._demo else
                     (self._power_feedback or f"System reports {DISPLAY[state.active]} active")
                 )
@@ -434,7 +685,7 @@ class NitroWindow(Adw.ApplicationWindow):
         self._power_busy = True
         self.power_combo.set_sensitive(False)
         self._sync_power_button()
-        self.power_status.set_subtitle(f"Requesting {DISPLAY[chosen]}…")
+        self.power_status.set_text(f"Requesting {DISPLAY[chosen]}…")
         Thread(target=self._apply_power_background, args=(chosen,), daemon=True,
                name="nitro-power-mode").start()
 
@@ -475,11 +726,32 @@ class NitroWindow(Adw.ApplicationWindow):
             hint = getattr(self, f"fan{index + 1}_hint")
             if index < len(data.fans):
                 fan = data.fans[index]
-                value.set_text(_number(fan.rpm, "RPM"))
-                hint.set_text(fan.control_mode + " control")
+                display_name = fan_display_name(data.model, fan.name)
+                self.fan_mode_titles[index].set_text(f"{display_name.upper()} · MODE")
+                value.set_text(fan_mode_description(fan.control_mode))
+                if fan.control_mode == "Unknown":
+                    value.add_css_class("nitro-fan-muted")
+                else:
+                    value.remove_css_class("nitro-fan-muted")
+                hint.set_text(f"{fan.name} · read-only sensor")
+                self.fan_dials[index].update(display_name, fan.rpm, fan.control_mode)
             else:
+                self.fan_mode_titles[index].set_text(f"FAN {index + 1} · MODE")
                 value.set_text("Unavailable")
+                value.add_css_class("nitro-fan-muted")
                 hint.set_text("No fan reading")
+                self.fan_dials[index].update(f"Fan {index + 1}", None, "Unknown")
+
+        # Time series are built only from actual snapshots and keep missing
+        # sensors as gaps rather than synthetic zeros or illustrative curves.
+        self._history.record(
+            data.sampled_at,
+            data.cpu_celsius,
+            data.gpu.celsius if data.gpu else None,
+            data.gpu.utilization_percent if data.gpu else None,
+        )
+        self.cpu_graph.set_history(self._history)
+        self.gpu_graph.set_history(self._history)
 
         if data.gpu:
             gpu = data.gpu
@@ -494,12 +766,16 @@ class NitroWindow(Adw.ApplicationWindow):
             for val in self.gpu_rows.values():
                 val.set_text("Unavailable")
 
+        self.overview_firmware_value.set_text(data.firmware_profile or "Unavailable")
+        self.overview_tuned_value.set_text(data.tuned_profile or "Unavailable")
         self.profile_rows["firmware"].set_text(data.firmware_profile or "Unavailable")
         choices = "  •  ".join(data.firmware_profile_choices) or "Unavailable"
         self.firmware_choices_row.set_subtitle(choices)
         self.profile_rows["tuned"].set_text(data.tuned_profile or "Unavailable")
         self._update_sensor_rows(self.fan_rows, [
-            (fan.name, fan.control_mode + " control", _number(fan.rpm, "RPM")) for fan in data.fans
+            (fan_display_name(data.model, fan.name),
+             fan_mode_description(fan.control_mode) + " · read-only",
+             _number(fan.rpm, "RPM")) for fan in data.fans
         ])
         self._update_sensor_rows(self.thermal_rows, [
             (sensor.name, sensor.source, _temp(sensor.celsius))
@@ -549,6 +825,7 @@ class NitroWindow(Adw.ApplicationWindow):
         if self._rgb_rendering:
             return
         plan = self._rgb_draft()
+        self.rgb_strip.update_zones(plan.zones)
         for label, color in zip(self.rgb_swatches, plan.zones):
             label.set_markup(f'<span foreground="{color}">●</span>  {color}')
         self.rgb_preview_status.set_subtitle(
@@ -579,6 +856,7 @@ class NitroWindow(Adw.ApplicationWindow):
         # The AN515-58 native backend currently permits only verified 100%
         # WMI initialization. The physical Fn keys still control dimming.
         supported_brightness = not native or self._rgb_draft().brightness == 100
+        self.rgb_native_hint.set_visible(native and not supported_brightness)
         self.rgb_apply_hardware.set_sensitive(ready and supported_brightness)
         self.rgb_restore_hardware.set_sensitive(ready and native and supported_brightness)
         if native:
