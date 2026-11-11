@@ -167,7 +167,7 @@ class DashboardSafetyContracts(unittest.TestCase):
     def test_no_fabricated_fan_control_buttons(self):
         source = (ROOT / "nitro_control" / "ui.py").read_text()
         self.assertIn("FAN STATUS", source)
-        self.assertIn("Firmware-managed · monitoring only", source)
+        self.assertIn("Live RPM · control mode may be unavailable", source)
         self.assertIn('value.set_text(fan_mode_description(fan.control_mode))', source)
         self.assertIn('self.fan_mode_titles[index].set_text(f"{display_name.upper()} · MODE")', source)
         self.assertIn('value.add_css_class("nitro-fan-muted")', source)
