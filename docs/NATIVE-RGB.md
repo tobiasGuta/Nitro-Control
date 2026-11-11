@@ -359,6 +359,38 @@ Do not add unattended firmware writes or boot services on this evidence.
 Track recurrence and investigation in
 [issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3).
 
+### November 11 investigation: package history and legacy module at boot
+
+Further read-only evidence narrows the November 10 blackout, but **the
+root cause is still unknown**:
+
+- The most recent multi-package DNF transaction (#105, November 8)
+  upgraded GNOME Software, `fwupd-efi`, and general desktop/application
+  packages. It did **not** include a kernel or `linux-firmware` upgrade.
+  Upgrading the `fwupd-efi` package is **not** the same as flashing Acer
+  BIOS or EC firmware; `fwupdmgr get-history` reported no firmware history.
+- The November 10 boot journal positively records **Linuwu Sense 25.701
+  module initialization at 20:02:29**, with out-of-tree/signature-taint
+  warnings, **alongside stock `acer_wmi` initialization**. Later `lsmod`
+  showed only `acer_wmi`. This is a possible driver/module lifecycle lead,
+  not proof of the cause. Inspect its autoload path and whether it was
+  unloaded before the keyboard went dark.
+- A deep ACPI S3 suspend occurred at 20:19:13, followed by EC restart and
+  resume at 21:02:48. At 21:08:53 the kernel logged
+  `acer_wmi: Unknown function number - 9 - 0`, which has no demonstrated
+  causal connection to RGB.
+- At 21:32:47, **before the authorized Restore firmware writes**, the
+  native module read keyboard brightness 100 and all four raw RGB zone
+  values zero. Method 2/20/6 restoration and readback then succeeded;
+  the user confirmed physical illumination and Fn+F9/Fn+F10 afterward.
+
+Avoid blaming DNF package upgrades, Linuwu, or suspend individually without
+isolating the time of first blackout. Do **not** reproduce by deliberately
+mixing drivers or changing ACPI/EC settings. Use read-only systemd unit
+and modules-load configuration inspection first; the investigation and
+diagnostic commands are tracked in
+[issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3).
+
 ## Testing and release gates
 
 Offline validation:
