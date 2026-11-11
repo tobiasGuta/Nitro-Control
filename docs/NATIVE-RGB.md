@@ -441,6 +441,29 @@ the initramfs contains Linuwu before deciding if any initramfs maintenance
 is appropriate. **Never force-unload a running driver or blacklist stock
 `acer_wmi`.**
 
+**Follow-up read-only confirmation:** `modprobe -R
+'wmi:676AA15E-6A47-4D9F-A2CC-1E6D18D14026'` returned both
+`acer_wmi` and `linuwu_sense`. The root-permission initramfs listing,
+`sudo lsinitrd -k "$(uname -r)" | grep -i linuwu_sense`, returned no
+matching filenames. Thus Linux's current alias index **does resolve
+both drivers for the same WMI device**, while the current initramfs
+apparently does not contain Linuwu. The exact kernel autoload requester
+has not been captured, and simultaneous binding or responsibility for
+the zeroed colors is **not proven**.
+
+If retiring this unused legacy driver, inspect current `lsmod` first,
+then run `sudo bash ./scripts/uninstall-rgb-driver-fedora.sh` from the
+reviewed Nitro-Control checkout. This intentionally removes **all
+Nitro-Control-managed legacy Linuwu module copies** under installed
+kernels, their digests, and the old service/controller; the separate
+native WMI `nitro_rgb_enable_poc.ko`, root-owned Polkit helper, and
+stock `acer_wmi` are preserved. The uninstaller refuses to proceed
+while Linuwu is loaded. Refresh the running kernel index afterward
+with `sudo depmod -a`, and verify `modprobe -R` resolves only
+`acer_wmi` and that `--rgb-probe` remains `native-wmi`. **Do not**
+force-remove a loaded kernel driver or rebuild initramfs without a
+specific reason.
+
 See [issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3).
 Keep firmware zeroing after S3 suspend/resume as an open causal question.
 
