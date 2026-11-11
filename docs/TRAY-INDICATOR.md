@@ -88,6 +88,67 @@ can be launched independently and continues to work normally.
 `--tray` cannot be combined with `--demo`, `--once` or `--rgb-probe`.
 No fake sample values will appear in a live tray.
 
+## Dashboard setting: keep Nitro Control in the tray
+
+A post-release improvement under review in
+`feat/dashboard-tray-setting` adds **Keep Nitro-Control in the system
+tray** to the dashboard's **top-right settings (gear) menu**. This
+does **not** change the published `v0.4.0-preview.2` tag or enable
+login autostart.
+
+1. Open the GUI normally from the **development source checkout**
+   using `/usr/bin/python3 -m nitro_control` (no `--tray` command).
+2. Open the header gear menu and enable
+   **Keep Nitro-Control in the system tray**.
+3. The GTK4 app saves a **user-only, default-off preference** in
+   `$XDG_CONFIG_HOME/nitro-control/tray-preferences.json` (or
+   `~/.config/nitro-control/tray-preferences.json`) and starts the
+   separate GTK3 tray process immediately. The GNOME AppIndicator
+   extension is required for the top-bar icon to be visible.
+4. Close the main GTK4 window: its tray process **keeps running**.
+   Select **Open Nitro Control** from that menu to reopen the GUI.
+5. The next time the GUI is opened normally, an enabled preference
+   starts the tray **only if needed**: the existing private
+   per-session lock prevents duplicates.
+6. **Quit tray** ends background monitoring. If the setting remains
+   enabled, starting the dashboard again will start the tray again.
+7. Turning the switch **off** stops *future automatic launches from
+   the dashboard*; it deliberately does not kill a tray process that
+   is already running. Use the tray's **Quit tray** menu item to stop
+   it immediately.
+
+The option is disabled in **demo mode**, ensuring that running the
+simulated dashboard never unexpectedly starts live sensor polling.
+Other CLI paths such as `--once`, `--rgb-probe`, and `--version`
+never start the tray.
+
+**This is not login autostart.** Closing/reopening the dashboard works
+as described after opting in, but to start the indicator at GNOME
+login *without opening the dashboard*, use the separate explicit
+autostart scripts documented below. They remain off by default.
+
+**Dependency failure:** If the optional
+`libayatana-appindicator-gtk3` package or GNOME extension is missing,
+the dashboard stays usable, and the settings menu displays a diagnostic
+message. Installing/enabling those dependencies is a separate user
+choice. The GUI setting itself never asks for root and never changes
+RGB, PWM or power hardware.
+
+### Fedora test checklist
+
+- [ ] Without enabling the switch, opening the GUI does **not** add a tray icon.
+- [ ] Switch on in the gear menu: one GNOME tray icon appears.
+- [ ] Close the dashboard: indicator remains visible, with real values.
+- [ ] Open the dashboard from the tray, then close it again: no duplicate icons.
+- [ ] Quit tray: icon disappears, sensor polling stops.
+- [ ] Launch dashboard normally again: one indicator reappears, because the preference persisted.
+- [ ] Switch off: no tray is auto-launched on the **next** dashboard launch; stop any already running indicator via **Quit tray**.
+- [ ] Confirm `--demo` doesn't start live monitoring, and the existing RGB WMI safety gates remain unchanged.
+
+Keep this feature under review until the owner confirms those live
+Fedora 45 GNOME results; automated tests alone cannot establish
+real top-bar behavior.
+
 ## Optional start at login — disabled by default
 
 The normal per-user `scripts/install-fedora.sh` **does not enable
