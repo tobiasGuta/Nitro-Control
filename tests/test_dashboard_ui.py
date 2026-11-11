@@ -82,6 +82,22 @@ class DashboardSafetyContracts(unittest.TestCase):
         for unsafe in ("subprocess.run", "modprobe ", "pwm1", "insmod ", "pkexec"):
             self.assertNotIn(unsafe, source)
 
+    def test_fan_animation_does_not_poll_or_write_hardware(self):
+        source = (ROOT / "nitro_control" / "ui.py").read_text()
+        artwork = (ROOT / "nitro_control" / "dashboard_visuals.py").read_text()
+        self.assertIn("GLib.timeout_add(33, self._on_fan_animation_tick)", source)
+        self.assertIn("GLib.get_monotonic_time()", source)
+        self.assertIn("self._page_stack.get_visible_child_name()", source)
+        self.assertIn("dial.animate(elapsed_seconds)", source)
+        self.assertIn("step = fan_angle_step(self._rpm, elapsed_seconds)", artwork)
+        self.assertIn("ctx.rotate(self._rotation + 2 * math.pi * i / blades)", artwork)
+        # The sensor-read path remains on the existing four-second cycle,
+        # rather than fetching sensor values on every animation frame.
+        self.assertIn("REFRESH_SECONDS = 4", source)
+        self.assertNotIn("self._reader.collect()", source[source.index("    def _on_fan_animation_tick"):source.index("    def _request_refresh")])
+        for dangerous in ("pwm", "insmod", "modprobe", "subprocess.run"):
+            self.assertNotIn(dangerous, artwork)
+
     def test_no_fabricated_fan_control_buttons(self):
         source = (ROOT / "nitro_control" / "ui.py").read_text()
         self.assertIn("FAN STATUS", source)
