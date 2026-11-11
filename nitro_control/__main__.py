@@ -29,7 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         from .ui import run_ui
     except (ImportError, ValueError) as exc:
-        print("GTK4 / Libadwaita unavailable. On Fedora: sudo dnf install python3-gobject gtk4 libadwaita", file=sys.stderr)
+        print("GTK4 / Libadwaita / Cairo unavailable. On Fedora: sudo dnf install python3-gobject python3-cairo gtk4 libadwaita", file=sys.stderr)
         print(f"Details: {exc}", file=sys.stderr)
         return 2
     return run_ui(demo=args.demo)
