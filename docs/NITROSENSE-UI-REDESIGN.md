@@ -1,11 +1,13 @@
-# Nitro-Control interface redesign — NitroSense-inspired GTK4 draft
+# Nitro-Control NitroSense-inspired GTK4 redesign — implementation and validation
 
-**Status:** Experimental GUI branch `feat/nitrosense-inspired-dashboard`, not
-merged into `main`. The supplied NitroSense reference screenshot is a
-**visual direction**, not evidence that its buttons or sensor measurements
-exist on this Linux laptop. This is an **original Nitro-Control interface**,
-not a copied Acer application, and it uses no Acer logos or proprietary
-NitroSense images.
+**Status:** Reviewed, source-ready GUI implementation developed on
+`feat/nitrosense-inspired-dashboard` for inclusion in `main`.
+These notes preserve the sequence of exploratory screenshot reviews and
+record the final verified behavior. The original NitroSense reference is
+a **visual direction**, not evidence of unsupported hardware functions.
+Nitro Control uses its own UI artwork and branding, not copied Acer
+logos or proprietary NitroSense assets. Native RGB hardware operations
+remain independently guarded and experimental.
 
 ## Fedora screenshot review — first draft vs reference
 
@@ -475,23 +477,28 @@ fan-channel map described above.
   hardware regression tests must be performed on the reference laptop**.
   Offline CI alone is insufficient to claim a pixel-perfect replica.
 
-## Remaining scope and merge considerations
+## Final validation and release scope
 
-**The owner has now reviewed live GTK screenshots of all three pages,
+**The owner reviewed live GTK screenshots of all three pages,
 the ordinary/maximized Dashboard, both CPU/GPU fan labels, and the
-smaller-window RGB scrolling.** They also reported passing the local
+smaller-window RGB scrolling.** They reported passing the local
 RGB preset/preview/reset workflow with no physical LED changes, and
-the desktop power-profile confirmation Cancel workflow. Automated core
-tests cover the data/safety contracts.
+testing the desktop power-profile confirmation Cancel behavior.
+A later screenshot independently showed Power Saver active, but its
+specific initiating interaction was not established by that screenshot.
+Automated core tests check data/safety contracts.
 
 The **redesign-specific physical RGB Apply/Restore operation was not
 retested**, deliberately: it would reinitialize an already working
 controller and the underlying privileged backend has not changed.
-A screenshot alone also cannot independently prove the smoothness or
-speed scaling of animated turbines. Retain the native 100%-brightness,
-Polkit and explicit-confirmation safeguards. This PR can undergo final
-code review without requiring unnecessary firmware writes; merging
-should be a deliberate separate decision.
+A still screenshot cannot independently prove turbine animation timing;
+the user did test the live dashboards and RPM readings. Retain the native
+100%-brightness, Polkit and explicit-confirmation safeguards.
+
+The redesigned UI is intended as a **source change**, not an automatic
+deployment, new kernel driver, unattended service or published release.
+Existing users must explicitly install updated app source to change their
+local launcher, without altering a working RGB kernel module installation.
 
 Related: [native RGB safety guide](NATIVE-RGB.md),
 [incident investigation](RGB-INCIDENT-2026-11.md),
