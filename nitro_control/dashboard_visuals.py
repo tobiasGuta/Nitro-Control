@@ -172,6 +172,61 @@ class FanDial(Gtk.DrawingArea):
         _text(ctx, "READ-ONLY · FIRMWARE CONTROL", cx, height - 16, 9,
               (0.54, 0.54, 0.58), center=True)
 
+class RGBZoneStrip(Gtk.DrawingArea):
+    """Four **draft** colors, never a claim about the physical keyboard.
+
+    This visualization owns no drivers or write APIs. It displays the same
+    validated in-memory palette already used by the existing RGB editor.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self._zones: tuple[str, ...] = ("#000000",) * 4
+        self.set_content_width(470)
+        self.set_content_height(112)
+        self.set_hexpand(True)
+        self.set_draw_func(self._draw)
+        self.set_tooltip_text("Draft RGB colors only; not applied to hardware")
+
+    def update_zones(self, zones: tuple[str, ...]) -> None:
+        import re
+        if len(zones) != 4 or any(
+            re.fullmatch(r"#[0-9A-Fa-f]{6}", zone) is None for zone in zones
+        ):
+            raise ValueError("Expected four validated RGB hex colors")
+        self._zones = zones
+        self.set_tooltip_text(
+            "Unapplied draft colors: " + ", ".join(zones))
+        self.queue_draw()
+
+    def _draw(self, _area, ctx, width, height):
+        ctx.set_source_rgb(0.047, 0.048, 0.058)
+        ctx.paint()
+        left, right = 17, max(width - 17, 18)
+        gap = 7
+        zone_width = max(1, (right - left - gap * 3) / 4)
+        for i, value in enumerate(self._zones):
+            r, g, b = (int(value[j:j + 2], 16) / 255 for j in (1, 3, 5))
+            x = left + i * (zone_width + gap)
+            # Original beveled key-zone tile, not a hardware top-view model.
+            ctx.move_to(x + 6, 24)
+            ctx.line_to(x + zone_width - 3, 24)
+            ctx.line_to(x + zone_width, 28)
+            ctx.line_to(x + zone_width - 5, 73)
+            ctx.line_to(x + 4, 73)
+            ctx.line_to(x, 68)
+            ctx.close_path()
+            ctx.set_source_rgb(r, g, b)
+            ctx.fill_preserve()
+            ctx.set_line_width(1.2)
+            ctx.set_source_rgba(1, 1, 1, 0.30)
+            ctx.stroke()
+            _text(ctx, f"ZONE {i + 1}", x + zone_width / 2, 94, 10,
+                  (0.70, 0.70, 0.75), center=True, bold=True)
+        _text(ctx, "DRAFT PALETTE · NOT APPLIED TO KEYBOARD",
+              left + 1, 15, 10, (0.70, 0.70, 0.75))
+
+
 class TelemetryGraph(Gtk.DrawingArea):
     """Actual timestamped samples, with breaks for absent sensor readings."""
 
