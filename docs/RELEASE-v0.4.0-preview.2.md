@@ -211,6 +211,51 @@ CI for the release-candidate branch passed Python **3.11** and
 **3.13** tests. Publication still requires the remaining gates in
 [issue #6](https://github.com/tobiasGuta/Nitro-Control/issues/6).
 
+## Final release-candidate Fedora functional smoke — owner verified
+
+On the **Acer Nitro AN515-58 running Fedora 45**, the owner reported
+that every requested **non-destructive release-candidate GUI interaction
+passed**:
+
+- **Power Mode:** choosing a different advertised desktop profile,
+  opening its confirmation dialog and selecting **Cancel** left the
+  active profile unchanged.
+- **RGB editor:** loading a new preset changed all four draft colors;
+  **Apply preview** changed simulated status only, with **no physical
+  LED change**; **Reset** restored the expected draft.
+- **RGB guard:** with native WMI editor brightness at **65%**, physical
+  **Apply to keyboard** and **Restore lighting** stayed disabled.
+- **Window sizing:** in a smaller window, the Keyboard RGB page still
+  scrolled to every required control.
+
+The owner then executed
+`scripts/smoke-test-gui-install-rollback-fedora.sh` from candidate
+commit `2007bed452ea4919e0acafd63b911df2fe5f6495`. Actual console
+output showed **all four PASS version checks**:
+`0.4.0-preview.1 → 0.4.0-preview.2 → 0.4.0-preview.1 →
+0.4.0-preview.2`, ending with
+`PASS: staged install, upgrade, rollback, re-upgrade, and launcher
+import isolation.` The script uses a private temporary `HOME`;
+this verifies **isolated per-user installation/rollback**, not a
+replacement of the owner's existing real-user launcher.
+
+**GDK warning observed:** After running the GTK preview, one
+`Gdk-WARNING: Duplicate call to gdk_frame_timings_presented() with
+different values` was printed (presentation timing mismatch ~6.944 ms).
+The same family of GTK frame-timing warnings has been reproduced in
+other GTK applications, including `gtk4-demo`; the candidate GUI
+continued operating and the owner reported all tests passed. It is
+**not currently a functional release blocker**, but its root cause
+on this machine remains unknown. If crashes, sustained animation
+jitter, or rendering corruption appear, investigate separately.
+See the [GTK discussion](https://discourse.gnome.org/t/how-to-avoid-duplicate-call-with-different-values/36355).
+
+**Not exercised:** This validation deliberately did **not** issue
+native physical RGB Apply/Restore, install new root-owned modules,
+change EC fan controls, or test a public release archive/tag (none
+exists yet). The existing Polkit and native brightness protections
+were unchanged from the previously tested backend.
+
 ## Field validation and outstanding gates
 
 The reference AN515-58 owner supplied screenshots of all three pages,
@@ -232,9 +277,10 @@ keyboard**, because that would unnecessarily issue a firmware operation.
 The privileged native RGB backend and its safety gates have not changed.
 Post-cleanup reboot/suspend-resume persistence was previously verified,
 but **not a release-candidate-specific regression run**. The release
-candidate's **three-tab visual/live telemetry smoke test** and CI are
-now complete; remaining interaction, installation/rollback and provenance
-verification are required before publication.
+candidate's **three-tab visual/live telemetry test**, specific
+non-destructive interaction checks, isolated install/upgrade/rollback
+test, and Python 3.11/3.13 CI have now passed. Final source/tag
+provenance review and GitHub Release publication remain pending.
 
 Source CI validates Python syntax, shell syntax and offline test suites
 on Python **3.11 and 3.13**. This is not a substitute for real-hardware
