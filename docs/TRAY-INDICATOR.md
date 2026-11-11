@@ -4,8 +4,10 @@
 [PR #9](https://github.com/tobiasGuta/Nitro-Control/pull/9)
 (commit `efa45e92834918e311a9973636e81ba88cfa4317`),
 after successful real Fedora 45 / AN515-58 GNOME tray tests.
-The tray is **optional**, starts only on explicit `--tray`, and
-login autostart is **disabled by default**. The published
+The tray is **optional**, starts explicitly with `--tray` or
+after the user enables the proposed GTK4 dashboard **Keep in tray**
+setting in this branch. GNOME login autostart is **disabled by default**.
+The published
 `v0.4.0-preview.2` tag does **not** contain this post-release feature.
 The GTK/Ayatana warning investigation remains open in
 [issue #10](https://github.com/tobiasGuta/Nitro-Control/issues/10).
@@ -87,6 +89,42 @@ can be launched independently and continues to work normally.
 
 `--tray` cannot be combined with `--demo`, `--once` or `--rgb-probe`.
 No fake sample values will appear in a live tray.
+
+## Test the new dashboard setting on Fedora
+
+Because the new setting is **not** in the published release yet,
+update only the existing separate tray preview checkout. First choose
+**Quit tray** if the old `--tray` process is still running, so the
+test starts without an existing icon. Then use:
+
+```bash
+cd "$HOME/Nitro-Control-tray-preview"
+git status --short
+git fetch origin feat/dashboard-tray-setting
+# Continue only when git status has no local edits:
+git switch --detach origin/feat/dashboard-tray-setting
+/usr/bin/python3 -m nitro_control
+```
+
+In the GTK4 dashboard, click the **gear icon at top right**, enable
+**Keep Nitro-Control in the system tray**, and verify **one** indicator
+appears without a manual `--tray` command. Close the dashboard window,
+then use the GNOME indicator's **Open Nitro Control** to reopen the
+dashboard. Confirm the icon stays available after closing the GUI.
+Quit tray, reopen the dashboard normally from the same checkout, and
+confirm the setting automatically restarts a **single** indicator.
+
+To turn the feature back off, use the **same gear menu** and disable
+the switch, then select **Quit tray** to stop the current process.
+New dashboard openings must no longer start the tray.
+
+**Do not remove the source preview worktree while its tray is
+still running.** The tray's Open Nitro Control action launches the
+dashboard from that same checkout. Close both processes first.
+
+**No sudo, driver rebuild, or login autostart setup is required**
+for this preview. The existing `v0.4.0-preview.2` installation and
+experimental native RGB module are unaffected.
 
 ## Dashboard setting: keep Nitro Control in the tray
 
