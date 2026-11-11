@@ -32,6 +32,17 @@ login across one reboot. This does not guarantee other models, kernels or
 future cold boots. Root-module/Polkit failure-path tests are synthetic;
 live authentication denial and forced module-failure cases remain untested.
 
+**November 2026 field follow-up:** A keyboard blackout initially blamed on
+updates was recovered with the manually authorized 100%-brightness WMI Restore.
+Investigation then found the unused Linuwu driver still registered for the
+same Acer WMI device as stock `acer_wmi`; it initialized during boot despite
+its disabled service. After the owner removed the legacy Linuwu module,
+the **first ordinary reboot and suspend/resume both passed**: four-zone RGB
+colors, Fn brightness and fans remained functional. **The original blackout
+cause is not proven.** Full timeline, commands, hardware validation and
+remaining questions: **[November 2026 RGB incident investigation](docs/RGB-INCIDENT-2026-11.md)**
+([issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3)).
+
 See **[Native WMI RGB: architecture, exact install steps, evidence, tests,
 troubleshooting and rollback](docs/NATIVE-RGB.md)** and
 **[v0.4.0-preview.1 release notes](docs/RELEASE-v0.4-preview.1.md)**.
