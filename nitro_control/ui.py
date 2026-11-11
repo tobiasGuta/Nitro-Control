@@ -31,10 +31,10 @@ window.nitro-window { background: #09090d; color: #eeeeef; }
 headerbar { background: #15151a; border-bottom: 1px solid #3a2026; }
 .nitro-brand { color: #f0f0f0; font-size: 20px; font-weight: 800; letter-spacing: 5px; }
 .nitro-section {
-    background: linear-gradient(to bottom, #19191d, #0c0c0e 62%, #080809);
-    border: 1px solid #444348;
-    border-radius: 6px 10px 19px 19px;
-    box-shadow: inset 0 1px rgba(255,255,255,0.12), 0 4px 15px rgba(0,0,0,0.45);
+    background: linear-gradient(to bottom, #242428, #101013 14%, #080809 66%, #0b0b0e);
+    border: 1px solid #555358;
+    border-radius: 6px 7px 18px 18px;
+    box-shadow: inset 0 1px rgba(255,255,255,0.16), 0 4px 15px rgba(0,0,0,0.45);
     padding: 0px 5px 7px;
 }
 .metric-card {
@@ -50,6 +50,10 @@ headerbar { background: #15151a; border-bottom: 1px solid #3a2026; }
 .info-note { color: #aaaab1; font-size: 11px; }
 .status-ok { color: #b6d5bf; }
 .status-alert { color: #f0a36d; }
+.nitro-power-picker { background: #222226; border-radius: 5px; padding: 8px; }
+.nitro-power-status { color: #a9a9b2; font-size: 12px; }
+.nitro-panel-hint { color: #b5b5bc; font-size: 12px; }
+.nitro-divider { background: #38383e; min-height: 1px; }
 .nitro-telemetry { color: #ef3b48; font-weight: 750; font-size: 21px; }
 .nitro-readonly { color: #8e8e95; font-size: 11px; font-weight: 600; }
 .nitro-accent { color: #eb3546; font-size: 12px; font-weight: 700; }
@@ -161,9 +165,11 @@ class NitroWindow(Adw.ApplicationWindow):
         def page(key: str, title: str) -> Gtk.Box:
             scroll = Gtk.ScrolledWindow()
             scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-            clamp = Adw.Clamp(maximum_size=1330, tightening_threshold=900)
+            clamp = Adw.Clamp(maximum_size=1500, tightening_threshold=1050)
+            clamp.set_hexpand(True)
             scroll.set_child(clamp)
-            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+            inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
+            inner.set_hexpand(True)
             for side in ("top", "bottom", "start", "end"):
                 getattr(inner, f"set_margin_{side}")(20)
             clamp.set_child(inner)
@@ -212,19 +218,23 @@ class NitroWindow(Adw.ApplicationWindow):
             fans.append(dial)
         content.append(section("Fan monitoring", fans, min_height=285))
 
-        lower = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=17)
+        lower = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
         lower.set_valign(Gtk.Align.START)
+        lower.set_hexpand(True)
         content.append(lower)
 
-        # The real GNOME power profile control remains in the existing group.
-        self.power_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
-        self.power_panel.set_size_request(355, -1)
-        self.power_panel.append(_label(
-            "Desktop power-profile service • not Acer fan PWM", css="nitro-readonly"))
-        lower.append(section("Power mode", self.power_panel))
+        # A compact left column is important to match the reference: broad
+        # monitoring graphs belong on the RIGHT. Adw.PreferencesGroup's long
+        # descriptions previously forced this column to more than half width.
+        self.power_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.power_panel.set_size_request(268, -1)
+        power_section = section("Power mode", self.power_panel)
+        power_section.set_hexpand(False)
+        lower.append(power_section)
 
-        monitors = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        monitors = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
         monitors.set_hexpand(True)
+        monitors.set_size_request(470, -1)
         cpu_card, self.cpu_value, self.cpu_hint = _metric_card(
             "CPU package temperature", "computer-symbolic")
         gpu_card, self.gpu_value, self.gpu_hint = _metric_card(
@@ -276,27 +286,37 @@ class NitroWindow(Adw.ApplicationWindow):
         profile_group.add(self.firmware_choices_row)
         hardware_content.append(profile_group)
 
-        power_group = Adw.PreferencesGroup(
-            title="Desktop power mode",
-            description="Use Fedora's standard power-profile service. These three GNOME modes are not the five raw Acer firmware modes.",
-        )
-        self.power_combo = Adw.ComboRow(title="GNOME power mode", subtitle="Choose a mode, then apply it")
-        self.power_combo.set_model(Gtk.StringList.new(["Unavailable"]))
+        # These are the SAME advertised GNOME profile options and the SAME
+        # explicit apply/confirm path. Only the wide Adw row is replaced with
+        # a compact native GTK selector and status label.
+        self.power_panel.append(_label("DESKTOP POWER PROFILE", css="nitro-accent"))
+        self.power_panel.append(_label(
+            "Only modes offered by Fedora's power-profile service.",
+            css="nitro-panel-hint"))
+        power_picker = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+        power_picker.add_css_class("nitro-power-picker")
+        power_picker.append(_label("Select system profile", css="metric-caption"))
+        self.power_combo = Gtk.DropDown.new_from_strings(["Unavailable"])
+        self.power_combo.set_hexpand(True)
         self.power_combo.set_sensitive(False)
         self.power_combo.connect("notify::selected", self._on_power_selection)
-        power_group.add(self.power_combo)
-        apply_row = Adw.ActionRow(title="Apply selected mode", subtitle="Requires confirmation; the system may ask for authorization")
-        self.power_apply = Gtk.Button(label="Apply")
+        power_picker.append(self.power_combo)
+        self.power_apply = Gtk.Button(label="Apply selected mode")
         self.power_apply.add_css_class("suggested-action")
-        self.power_apply.set_valign(Gtk.Align.CENTER)
         self.power_apply.set_sensitive(False)
         self.power_apply.connect("clicked", self._request_power_change)
-        apply_row.add_suffix(self.power_apply)
-        power_group.add(apply_row)
-        self.power_status = Adw.ActionRow(title="Status", subtitle="Checking power-profile service…")
-        self.power_status.set_subtitle_lines(0)
-        power_group.add(self.power_status)
-        self.power_panel.append(power_group)
+        power_picker.append(self.power_apply)
+        self.power_panel.append(power_picker)
+        self.power_panel.append(_label("STATUS", css="metric-caption"))
+        self.power_status = _label(
+            "Checking power-profile service…", css="nitro-power-status")
+        self.power_status.set_wrap(True)
+        self.power_status.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        self.power_status.set_max_width_chars(32)
+        self.power_panel.append(self.power_status)
+        self.power_panel.append(_label(
+            "Fan RPM: read-only · Acer firmware profiles: read-only",
+            css="nitro-readonly"))
 
         cooling_group = Adw.PreferencesGroup(title="Cooling", description="Fan readings are passive. Firmware remains in control of the fans.")
         self.fan_rows = []
@@ -478,7 +498,7 @@ class NitroWindow(Adw.ApplicationWindow):
                 self._power_choices = ()
                 self.power_combo.set_model(Gtk.StringList.new(["Unavailable"]))
                 self.power_combo.set_sensitive(False)
-                self.power_status.set_subtitle(error or "Power-profile service unavailable")
+                self.power_status.set_text(error or "Power-profile service unavailable")
             else:
                 if self._power_feedback_profile and state.active != self._power_feedback_profile:
                     self._power_feedback = None
@@ -490,7 +510,7 @@ class NitroWindow(Adw.ApplicationWindow):
                 chosen = prior if prior in state.choices and prior != old_active else state.active
                 self.power_combo.set_selected(state.choices.index(chosen))
                 self.power_combo.set_sensitive(not self._demo and not self._power_busy)
-                self.power_status.set_subtitle(
+                self.power_status.set_text(
                     "Demo only — power changes disabled" if self._demo else
                     (self._power_feedback or f"System reports {DISPLAY[state.active]} active")
                 )
@@ -522,7 +542,7 @@ class NitroWindow(Adw.ApplicationWindow):
         self._power_busy = True
         self.power_combo.set_sensitive(False)
         self._sync_power_button()
-        self.power_status.set_subtitle(f"Requesting {DISPLAY[chosen]}…")
+        self.power_status.set_text(f"Requesting {DISPLAY[chosen]}…")
         Thread(target=self._apply_power_background, args=(chosen,), daemon=True,
                name="nitro-power-mode").start()
 
