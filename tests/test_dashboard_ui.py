@@ -49,7 +49,8 @@ class DashboardSafetyContracts(unittest.TestCase):
         self.assertIn("self._history.record(", source)
         self.assertIn("data.cpu_celsius", source)
         self.assertIn("data.gpu.utilization_percent if data.gpu else None", source)
-        self.assertIn('self.fan_dials[index].update(fan.name, fan.rpm, fan.control_mode)', source)
+        self.assertIn('self.fan_dials[index].update(display_name, fan.rpm, fan.control_mode)', source)
+        self.assertIn('display_name = fan_display_name(data.model, fan.name)', source)
 
     def test_rgb_physical_permissions_and_100_guard_preserved(self):
         source = (ROOT / "nitro_control" / "ui.py").read_text()
@@ -167,7 +168,10 @@ class DashboardSafetyContracts(unittest.TestCase):
         source = (ROOT / "nitro_control" / "ui.py").read_text()
         self.assertIn("FAN STATUS", source)
         self.assertIn("Firmware-managed · monitoring only", source)
-        self.assertIn('value.set_text(fan.control_mode)', source)
+        self.assertIn('value.set_text(fan_mode_description(fan.control_mode))', source)
+        self.assertIn('self.fan_mode_titles[index].set_text(f"{display_name.upper()} · MODE")', source)
+        self.assertIn('value.add_css_class("nitro-fan-muted")', source)
+        self.assertIn('fan_mode_description(fan.control_mode) + " · read-only"', source)
         self.assertNotIn('value.set_text(_number(fan.rpm, "RPM"))', source)
         self.assertIn("self.overview_firmware_value.set_text(data.firmware_profile or \"Unavailable\")", source)
         self.assertIn("self.overview_tuned_value.set_text(data.tuned_profile or \"Unavailable\")", source)
