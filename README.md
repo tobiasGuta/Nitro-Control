@@ -6,24 +6,28 @@ Version 0.4.0-preview.2 **(source preview)** • opt-in experimental Acer WMI RG
 
 Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. The GUI never runs as root or directly calls WMI. An optional, separately installed native-RGB development backend can execute a root-owned, one-shot WMI kernel module while keeping stock `acer_wmi` loaded. It never writes fan PWM.
 
-## Optional GNOME top-bar indicator (experimental branch)
+## Optional GNOME top-bar indicator (merged in main)
 
-A separate, opt-in `feat/optional-tray-indicator` branch adds a
-**StatusNotifierItem/AppIndicator** compatible menu for GNOME's
+The optional `--tray` feature was merged from
+[PR #9](https://github.com/tobiasGuta/Nitro-Control/pull/9) after live
+Fedora 45/GNOME verification. It exposes a
+**StatusNotifierItem/AppIndicator** icon through GNOME's
 [AppIndicator and KStatusNotifierItem Support
 extension](https://extensions.gnome.org/extension/615/appindicator-support/).
-The small read-only menu shows available CPU/GPU temperature and
-actual fan RPM, and offers **Open Nitro Control**, **Refresh readings**
-and **Quit tray**. It uses the Fedora
-`libayatana-appindicator-gtk3` package in a **separate GTK3 process**,
-while the full dashboard remains GTK4. Missing sensors stay unavailable,
-and native RGB/fan/power hardware behavior is unchanged.
+Its read-only menu shows available CPU/GPU temperatures and actual
+fan RPM, plus **Open Nitro Control**, **Refresh readings** and
+**Quit tray**. The Fedora optional dependency is
+`libayatana-appindicator-gtk3`, running in its **own GTK3 process**,
+separate from the full GTK4 dashboard. Missing sensors stay unavailable.
 
-The tray **does not auto-start**, install kernel drivers, or update the
-GNOME extension. An explicit, guarded per-user optional login script
-is available only after reviewing and installing tray-capable source.
-The published `v0.4.0-preview.2` tag is unaffected.
-See [tray design, Fedora preview and opt-in instructions](docs/TRAY-INDICATOR.md).
+Start manually from a source checkout containing the feature with
+`/usr/bin/python3 -m nitro_control --tray`. The tray **does not
+start automatically**, install kernel drivers, change fan/RGB/power
+state, or update the GNOME extension. A guarded user-level autostart
+script exists but must be **explicitly enabled**, never by the regular
+installer. The already published `v0.4.0-preview.2` tag predates this
+feature. See [tray usage and Fedora validation](docs/TRAY-INDICATOR.md);
+GTK/Ayatana compatibility warnings are tracked in [#10](https://github.com/tobiasGuta/Nitro-Control/issues/10).
 
 ## NitroSense-inspired dashboard (v0.4.0-preview.2)
 
