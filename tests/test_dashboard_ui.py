@@ -66,6 +66,22 @@ class DashboardSafetyContracts(unittest.TestCase):
         self.assertIn("monitors.set_size_request(470, -1)", source)
         self.assertNotIn("power_group = Adw.PreferencesGroup(", source)
 
+    def test_maximized_dashboard_fills_window_without_horizontal_clamp(self):
+        source = (ROOT / "nitro_control" / "ui.py").read_text()
+        page = source.split("        def page(key: str, title: str) -> Gtk.Box:", 1)[1]
+        page = page.split('        content = page("dashboard", "Dashboard")', 1)[0]
+        self.assertIn('if key == "dashboard":', page)
+        self.assertIn("scroll.set_child(inner)", page)
+        self.assertIn("inner.set_hexpand(True)", page)
+        self.assertIn("inner.set_halign(Gtk.Align.FILL)", page)
+        self.assertIn("Adw.Clamp(maximum_size=1100", page)
+        self.assertIn("clamp.set_child(inner)", page)
+        # Only the narrower settings pages use the clamp.
+        self.assertLess(page.index("if key == \"dashboard\":"), page.index("Adw.Clamp("))
+        self.assertIn("monitoring_section.set_hexpand(True)", source)
+        self.assertIn("fans.set_hexpand(True)", source)
+        self.assertIn("self.power_panel.set_size_request(268, -1)", source)
+
     def test_real_power_control_remains_select_apply_confirm(self):
         source = (ROOT / "nitro_control" / "ui.py").read_text()
         self.assertIn("self.power_combo.connect(\"notify::selected\", self._on_power_selection)", source)
