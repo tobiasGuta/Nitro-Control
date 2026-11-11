@@ -192,6 +192,11 @@ class NitroWindow(Adw.ApplicationWindow):
             for side in ("top", "bottom", "start", "end"):
                 getattr(inner, f"set_margin_{side}")(20)
             if key == "dashboard":
+                # Let the dashboard content grow to fill spare *vertical*
+                # space as well as horizontal space. Its graph panels take
+                # extra height; the status header and fan dials stay compact.
+                inner.set_vexpand(True)
+                inner.set_valign(Gtk.Align.FILL)
                 # A max-width Adw.Clamp centered the dashboard on a maximized
                 # desktop and left wide unused black gutters at both edges.
                 # The dashboard's fixed-width left status column and expanding
@@ -258,8 +263,9 @@ class NitroWindow(Adw.ApplicationWindow):
         content.append(section("Fan monitoring", fans, min_height=285))
 
         lower = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
-        lower.set_valign(Gtk.Align.START)
+        lower.set_valign(Gtk.Align.FILL)
         lower.set_hexpand(True)
+        lower.set_vexpand(True)
         content.append(lower)
 
         # A compact left column is important to match the reference: broad
@@ -267,12 +273,13 @@ class NitroWindow(Adw.ApplicationWindow):
         # descriptions previously forced this column to more than half width.
         self.power_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.power_panel.set_size_request(268, -1)
-        power_section = section("Power mode", self.power_panel)
+        power_section = section("Power mode", self.power_panel, fill_height=True)
         power_section.set_hexpand(False)
         lower.append(power_section)
 
         monitors = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
         monitors.set_hexpand(True)
+        monitors.set_vexpand(True)
         monitors.set_size_request(470, -1)
         # The reference uses the graphs as the dominant elements, not
         # oversized dashboard metric tiles. Keep readable values in a slim
@@ -294,9 +301,11 @@ class NitroWindow(Adw.ApplicationWindow):
         self.cpu_graph = TelemetryGraph("CPU · package temperature", "cpu_celsius")
         self.gpu_graph = TelemetryGraph(
             "GPU · temperature / utilization", "gpu_celsius", "gpu_utilization_percent")
+        self.cpu_graph.set_vexpand(True)
+        self.gpu_graph.set_vexpand(True)
         monitors.append(self.cpu_graph)
         monitors.append(self.gpu_graph)
-        monitoring_section = section("Live monitoring", monitors)
+        monitoring_section = section("Live monitoring", monitors, fill_height=True)
         monitoring_section.set_hexpand(True)
         lower.append(monitoring_section)
 
