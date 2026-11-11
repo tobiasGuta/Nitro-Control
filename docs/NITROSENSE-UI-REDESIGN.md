@@ -106,6 +106,39 @@ profiles, fan speeds and flat graph traces are **sample values**, not
 measurements of this laptop's live condition. Do not interpret them
 as live hardware readings.
 
+## Animated turbines — RPM-proportional, visual-only
+
+The original NitroSense reference suggests moving fan blades; the GTK/Cairo
+`FanDial` now animates its rotor blades **independently for each reported
+fan RPM**. A higher observed RPM produces proportionally faster on-screen
+movement; `0 RPM`, a missing sensor reading, or an invalid RPM value stops
+the animation entirely. Actual RPM numbers continue to come from Acer
+HWMON, never from the animation.
+
+**The visual rotation is intentionally slowed down**, because a fan at
+2,000 RPM physically makes over 33 revolutions per second and would alias
+badly on a desktop monitor. The purely presentational mapping is
+`rpm / 15000` *visible turns per second* (with a visual-only cap at 7,500
+RPM); it is **not** physical rotation speed and places no restriction on
+the real fan. Each GUI animation frame is driven by the monotonic GTK
+main loop (~30 FPS) and capped for long pauses to avoid a sudden jump on
+resume. The timer stops redrawing fan dials on other tabs or when the
+window is unmapped, and stops on window close.
+
+- Hardware samples remain on the **unchanged four-second worker-thread
+  polling cadence**. No extra HWMON calls, WMI operations, PWM writes,
+  driver loads or platform-profile changes are made by the animation.
+- Demo mode uses the **existing clearly labeled sample RPMs**, so the
+  preview blades move as demonstration only, not live hardware testimony.
+- Added pure, GTK-independent tests for stationary/missing data,
+  proportional per-fan speeds, display-speed slowing, and safe
+  suspend/resume timing.
+
+This is an additional **visual acceptance gate**: review a running preview
+on the Fedora laptop for smooth motion (a still screenshot cannot verify
+animation), check that faster actual fan RPM gives faster-looking blades,
+and confirm an absent/stopped sensor is visually stationary.
+
 ## Layout mapped to the supplied reference screenshot
 
 | Screenshot visual element | GTK4 implementation | Data / permission boundary |
