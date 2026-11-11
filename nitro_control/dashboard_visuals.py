@@ -53,24 +53,37 @@ class Ribbon(Gtk.DrawingArea):
 
     def _draw(self, _area, ctx, width, height):
         w = min(width, 258)
+        # Angled machined-metal header with a gentle silver bevel rather than
+        # a generic GTK group label. The drawing is original Nitro-Control art.
         ctx.move_to(0, height - 4)
-        ctx.line_to(0, 11)
-        ctx.line_to(12, 1)
+        ctx.line_to(0, 10)
+        ctx.line_to(11, 1)
         ctx.line_to(w, 1)
-        ctx.line_to(w - 34, height - 4)
+        ctx.line_to(w - 32, height - 4)
         ctx.close_path()
-        ctx.set_source_rgb(0.29, 0.30, 0.32)
+        steel = cairo.LinearGradient(0, 0, 0, height)
+        steel.add_color_stop_rgb(0.0, 0.46, 0.46, 0.48)
+        steel.add_color_stop_rgb(0.28, 0.33, 0.34, 0.36)
+        steel.add_color_stop_rgb(0.79, 0.25, 0.26, 0.28)
+        steel.add_color_stop_rgb(1.0, 0.15, 0.15, 0.17)
+        ctx.set_source(steel)
         ctx.fill_preserve()
         ctx.set_line_width(1)
-        ctx.set_source_rgba(0.75, 0.75, 0.75, 0.30)
+        ctx.set_source_rgba(0.8, 0.8, 0.8, 0.30)
         ctx.stroke()
-        ctx.move_to(7, 5)
-        ctx.line_to(w - 24, 5)
-        ctx.set_line_width(1)
-        ctx.set_source_rgba(0.88, 0.88, 0.88, 0.10)
-        ctx.stroke()
-        _text(ctx, self.title.upper(), 17, 25, 13, bold=True)
 
+        ctx.move_to(11, 3)
+        ctx.line_to(w - 7, 3)
+        ctx.set_source_rgba(1, 1, 1, 0.20)
+        ctx.set_line_width(1)
+        ctx.stroke()
+        for y in (12, 19, 26):
+            ctx.move_to(7, y)
+            ctx.line_to(w - 40, y)
+        ctx.set_source_rgba(0.07, 0.07, 0.08, 0.09)
+        ctx.set_line_width(0.6)
+        ctx.stroke()
+        _text(ctx, self.title.upper(), 16, 25, 13, bold=True)
 
 class FanDial(Gtk.DrawingArea):
     """A decorative turbine dial with an *unscaled* real RPM readout."""
@@ -102,36 +115,52 @@ class FanDial(Gtk.DrawingArea):
     def _draw(self, _area, ctx, width, height):
         cx = width / 2
         cy = min(height * 0.43, 100)
-        radius = min(width * 0.35, 76)
+        radius = min(width * 0.375, 85)
 
-        # Geometric fan blades echo the turbine motif in the reference.
-        for i in range(20):
+        # Thirty swept, narrow blades make the reference's turbine silhouette.
+        # Their gray color is a decorative material treatment, NOT a speed or
+        # PWM indicator. No fan maximum is assumed or guessed.
+        blades = 28
+        for i in range(blades):
             ctx.save()
             ctx.translate(cx, cy)
-            ctx.rotate(2 * math.pi * i / 20)
-            ctx.move_to(radius * 0.75, -2)
-            ctx.curve_to(radius * 1.08, -14, radius * 1.17, -13, radius * 1.19, -1)
-            ctx.curve_to(radius * 1.09, 8, radius * 0.91, 12, radius * 0.75, 7)
+            ctx.rotate(2 * math.pi * i / blades)
+            ctx.move_to(radius * 0.69, -1)
+            ctx.curve_to(radius * 0.84, -radius * 0.21,
+                         radius * 1.13, -radius * 0.27,
+                         radius * 1.22, -radius * 0.13)
+            ctx.curve_to(radius * 1.18, -radius * 0.085,
+                         radius * 1.14, -radius * 0.09,
+                         radius * 1.04, -radius * 0.105)
+            ctx.curve_to(radius * 0.91, -radius * 0.10,
+                         radius * 0.80, radius * 0.09,
+                         radius * 0.70, radius * 0.10)
             ctx.close_path()
-            _color(ctx, (0.38, 0.38, 0.40), 0.64)
-            ctx.fill()
+            metal = cairo.LinearGradient(radius * 0.7, 0, radius * 1.2, 0)
+            metal.add_color_stop_rgba(0, 0.19, 0.19, 0.21, 0.86)
+            metal.add_color_stop_rgba(0.5, 0.41, 0.41, 0.43, 0.86)
+            metal.add_color_stop_rgba(1, 0.29, 0.29, 0.31, 0.74)
+            ctx.set_source(metal)
+            ctx.fill_preserve()
+            ctx.set_source_rgba(0, 0, 0, 0.5)
+            ctx.set_line_width(0.6)
+            ctx.stroke()
             ctx.restore()
 
         ctx.arc(cx, cy, radius * 0.89, 0, 2 * math.pi)
-        _color(ctx, RED, 0.45)
-        ctx.set_line_width(3)
+        _color(ctx, RED, 0.47)
+        ctx.set_line_width(2.8)
         ctx.stroke_preserve()
-        ctx.set_source_rgb(0.044, 0.044, 0.052)
+        ctx.set_source_rgb(0.040, 0.041, 0.048)
         ctx.fill()
 
         rpm = f"{self._rpm:,}" if self._rpm is not None else "—"
-        _text(ctx, rpm, cx, cy + 10, 28, center=True, bold=True)
+        _text(ctx, rpm, cx, cy + 9, 30, center=True, bold=True)
         _text(ctx, "RPM" if self._rpm is not None else "NO SENSOR",
-              cx, cy + 31, 10, (0.65, 0.65, 0.68), center=True)
+              cx, cy + 30, 10, (0.65, 0.65, 0.68), center=True)
         _text(ctx, self._name[:24], cx, height - 34, 13, center=True, bold=True)
-        _text(ctx, "READ-ONLY FAN TELEMETRY", cx, height - 16, 9,
-              (0.53, 0.53, 0.56), center=True)
-
+        _text(ctx, "READ-ONLY · FIRMWARE CONTROL", cx, height - 16, 9,
+              (0.54, 0.54, 0.58), center=True)
 
 class TelemetryGraph(Gtk.DrawingArea):
     """Actual timestamped samples, with breaks for absent sensor readings."""
@@ -203,17 +232,19 @@ class TelemetryGraph(Gtk.DrawingArea):
         ctx.rectangle(0, 0, width, height)
         ctx.fill()
 
-        # Quiet industrial grid; line density remains independent of values.
-        for i in range(11):
-            x = left + (right - left) * i / 10
+        # Fine red graph-paper grid, matching the dense monitoring panels
+        # without inventing sensor readings.
+        lines = max(11, int(max(right - left, 1) / 22))
+        for i in range(lines + 1):
+            x = left + (right - left) * i / lines
             ctx.move_to(x, top)
             ctx.line_to(x, bottom)
-        for i in range(5):
-            y = top + (bottom - top) * i / 4
+        for i in range(6):
+            y = top + (bottom - top) * i / 5
             ctx.move_to(left, y)
             ctx.line_to(right, y)
-        _color(ctx, RED, 0.13)
-        ctx.set_line_width(0.65)
+        _color(ctx, RED, 0.15)
+        ctx.set_line_width(0.55)
         ctx.stroke()
         _text(ctx, self.title.upper(), 12, 21, 13, bold=True)
 
@@ -225,6 +256,8 @@ class TelemetryGraph(Gtk.DrawingArea):
             if hi <= lo:
                 hi = lo + 10
             self._plot(ctx, series, lo, hi, top, bottom, left, right, RED)
+            _text(ctx, f"MIN {min(available):.0f}°  MAX {max(available):.0f}°",
+                  right - 132, 21, 10, (0.58, 0.58, 0.62))
             _text(ctx, f"{hi:.0f}°", left + 2, top + 14, 10, (0.57, 0.57, 0.59))
             _text(ctx, f"{lo:.0f}°", left + 2, bottom - 6, 10, (0.57, 0.57, 0.59))
             last = series[-1]
