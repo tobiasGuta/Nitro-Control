@@ -467,6 +467,59 @@ specific reason.
 See [issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3).
 Keep firmware zeroing after S3 suspend/resume as an open causal question.
 
+## Post-Linuwu-cleanup stability checks (manual and read-only)
+
+The legacy `linuwu_sense.ko` was removed from the reference AN515-58 after
+confirming a WMI module alias match with stock `acer_wmi`. After uninstalling
+the old module and refreshing the module alias index, the owner verified that
+`modprobe -R` returned **only `acer_wmi`** and that the installed Nitro-Control
+`0.4.0-preview.1` again reported **`native-wmi` available**. The first failed
+probe was due to launching from an **older experimental Git checkout**, which
+shadowed the installed Python package. The updated per-user launcher now
+changes to the installed application directory and invokes Python with
+`-P` (safe-path mode, Python 3.11+) to avoid that import shadowing. Rerun
+`bash scripts/install-fedora.sh` from updated source to install the new
+launcher; this does not require `sudo` or touch kernel modules.
+
+**Observe natural boots and resumes without intentionally forcing
+firmware resets.** On the next ordinary boot, note whether the four-zone
+lighting is physically on **before login**, and whether colors survive the
+login. After an ordinary suspend/resume, inspect the four colors and whether
+Fn+F9/Fn+F10 adjust brightness without changing the configured colors. Log
+the time of each observation, so it can be compared to the system journal.
+
+Run these *read-only* commands from any directory once the new launcher is
+installed:
+
+```bash
+~/.local/bin/nitro-control --rgb-probe
+lsmod | grep -E '^(acer_wmi|linuwu_sense|nitro_rgb_enable_poc)' || true
+modprobe -R 'wmi:676AA15E-6A47-4D9F-A2CC-1E6D18D14026'
+cat /sys/firmware/acpi/platform_profile
+for h in /sys/class/hwmon/hwmon*; do
+    [ "$(cat "$h/name" 2>/dev/null)" = acer ] || continue
+    printf 'Acer fan1=%s fan2=%s RPM\n' \
+      "$(cat "$h/fan1_input" 2>/dev/null)" \
+      "$(cat "$h/fan2_input" 2>/dev/null)"
+done
+```
+
+These checks establish backend availability and telemetry, **not physical
+LED status or firmware zone colors**. Visually inspect the keyboard. If
+lighting goes dark again, **record the time and logs before invoking Restore**:
+
+```bash
+date --iso-8601=seconds
+journalctl -k -b --no-pager | grep -Ei 'acer_wmi|linuwu|nitro_rgb|ACPI: EC|PM: suspend' | tail -n 100
+```
+
+Only then, if desired, recover using the existing **explicitly authorized
+Restore lighting** flow with editor brightness **100%**. No unattended boot,
+resume, update-monitoring service, automatic module loading, or EC/fan writes
+are installed by this procedure. Track observations in
+[issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3);
+absence of a recurrence on one boot is encouraging, not proof of root cause.
+
 ## Testing and release gates
 
 Offline validation:
