@@ -5,8 +5,10 @@
 (commit `efa45e92834918e311a9973636e81ba88cfa4317`),
 after successful real Fedora 45 / AN515-58 GNOME tray tests.
 The tray is **optional**, starts explicitly with `--tray` or
-after the user enables the proposed GTK4 dashboard **Keep in tray**
-setting in this branch. GNOME login autostart is **disabled by default**.
+when the user enables the GTK4 dashboard's **Keep Nitro-Control in the
+system tray** setting (merged by
+[PR #11](https://github.com/tobiasGuta/Nitro-Control/pull/11)).
+GNOME login autostart is **disabled by default**.
 The published
 `v0.4.0-preview.2` tag does **not** contain this post-release feature.
 The GTK/Ayatana warning investigation remains open in
@@ -128,14 +130,14 @@ experimental native RGB module are unaffected.
 
 ## Dashboard setting: keep Nitro Control in the tray
 
-A post-release improvement under review in
-`feat/dashboard-tray-setting` adds **Keep Nitro-Control in the system
-tray** to the dashboard's **top-right settings (gear) menu**. This
-does **not** change the published `v0.4.0-preview.2` tag or enable
-login autostart.
+The Fedora-verified [PR #11](https://github.com/tobiasGuta/Nitro-Control/pull/11)
+added **Keep Nitro-Control in the system tray** to the dashboard's
+**top-right settings (gear) menu**. The feature is now part of `main`;
+it does **not** modify the previously published `v0.4.0-preview.2`
+tag or enable login autostart.
 
-1. Open the GUI normally from the **development source checkout**
-   using `/usr/bin/python3 -m nitro_control` (no `--tray` command).
+1. Open the updated GUI normally using the GNOME Activities icon or
+   the `nitro-control` launcher (no `--tray` command).
 2. Open the header gear menu and enable
    **Keep Nitro-Control in the system tray**.
 3. The GTK4 app saves a **user-only, default-off preference** in
@@ -183,9 +185,9 @@ RGB, PWM or power hardware.
 - [ ] Switch off: no tray is auto-launched on the **next** dashboard launch; stop any already running indicator via **Quit tray**.
 - [ ] Confirm `--demo` doesn't start live monitoring, and the existing RGB WMI safety gates remain unchanged.
 
-Keep this feature under review until the owner confirms those live
-Fedora 45 GNOME results; automated tests alone cannot establish
-real top-bar behavior.
+These lifecycle checks were reported passing on the reference Fedora
+45 GNOME laptop before PR #11 was merged. The separate GTK/Ayatana
+warnings remain tracked in [issue #10](https://github.com/tobiasGuta/Nitro-Control/issues/10).
 
 ## Optional start at login — disabled by default
 
