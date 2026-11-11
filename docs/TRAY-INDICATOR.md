@@ -169,6 +169,38 @@ relaunch/quit stability. Optional login autostart remains off and is
 not required to merge. Verify the warnings' behavior on a fresh
 session. The stable published `v0.4.0-preview.2` remains untouched.
 
+## Second Fedora GNOME test — refresh and single-instance PASS
+
+On November 11, 2026, the owner returned with a second live
+GNOME/Ptyxis screenshot, showing **two terminals**:
+
+- Left: original `/usr/bin/python3 -m nitro_control --tray`
+  process still running; GNOME top bar retained **one Nitro Control
+  status icon**.
+- Right: a second invocation of the same command immediately printed
+  `Nitro Control tray is already running.` and returned to the
+  shell prompt. **No duplicate indicator** was created.
+
+The owner also explicitly reported that **everything in the requested
+final test passed**, including the **Refresh readings** action
+(updating the timestamp/readings), relaunch and normal **Quit tray**
+behavior. The first run had already confirmed that opening the full
+GTK4 Nitro Control dashboard works correctly.
+
+**Outcome:** The user-tested core indicator workflows now pass on
+the reference Fedora 45 GNOME session: real read-only sensor menu,
+open dashboard, refresh, single instance and quit. Autostart remains
+**optional/off by default** and was not enabled for this test.
+
+The second screenshot shows the **Ayatana GTK3 deprecation warning**
+from the first running process, but no newly shown GTK widget
+assertion in that frame. Since the screenshot was taken before
+shutdown, it **does not prove** that the intermittent
+`gtk_widget_get_scale_factor` assertion is fixed or never recurs.
+The dependency warning and previously reported shutdown assertion
+remain documented observations, not evidence of lost functionality
+or native RGB problems.
+
 ## Safety, limitations and review gates
 
 - The tray uses the existing **read-only** `HardwareReader.collect()`.
