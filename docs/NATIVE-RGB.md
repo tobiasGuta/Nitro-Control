@@ -1,14 +1,23 @@
 # Native Acer WMI RGB — AN515-58 development preview
 
-> Status: **experimental development feature — NOT yet hardware-qualified for
-> arbitrary four-zone colors or reboot/resume**. The earlier *red-only* recovery
-> sequence is physically confirmed on this AN515-58 under Fedora 44 and Fedora
-> 45. The new configurable backend must be reviewed and tested separately.
+> Status: **experimental, opt-in development feature**, physically tested
+> on **one reference AN515-58**, not qualified across other models/kernels or
+> future updates. Four distinct RGB colors, Fn-key brightness, one post-cleanup
+> reboot and one suspend/resume have been **owner-confirmed**. Earlier red-only
+> recovery was also verified under Fedora 44 and Fedora 45. This does not
+> establish why the firmware previously cleared all four RGB zones.
 
 This feature builds on the existing, manually verified
 [`experiments/acer-wmi-rgb-enable-poc`](../experiments/acer-wmi-rgb-enable-poc/README.md).
 It keeps the stock `acer_wmi` driver loaded. It is intentionally **not** the
 Linuwu-Sense replacement driver and does **not** install a startup service.
+
+For the complete November 2026 blackout/recovery investigation, WMI alias
+evidence, Linuwu cleanup, launcher regression fix, and post-cleanup reboot
+and suspend/resume test results, see
+**[November 2026 RGB incident report](RGB-INCIDENT-2026-11.md)**.
+The original blackout cause remains unknown; [issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3)
+tracks recurrence.
 
 ## Verified evidence vs unverified assumptions
 
