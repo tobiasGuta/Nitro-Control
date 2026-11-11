@@ -61,6 +61,61 @@ Linux readings and guarded controls.
   Initialization at 65% could cause unwanted Fn brightness/color behavior;
   see [issue #2](https://github.com/tobiasGuta/Nitro-Control/issues/2).
 
+## Non-destructive release-candidate test plan
+
+Run the release candidate **from its separate source checkout** so your
+installed Nitro Control and privileged native RGB helper remain unchanged:
+
+```bash
+cd "$HOME/Nitro-Control-release-candidate"
+/usr/bin/python3 -m nitro_control --version
+/usr/bin/python3 -m nitro_control
+```
+
+In the GUI, verify **without executing physical keyboard changes**:
+
+1. **Power Mode:** Note the active profile, select a *different*
+   system-offered profile, click **Apply selected mode**, then click
+   **Cancel** in the confirmation dialog. Wait for the next live refresh
+   and confirm the active profile is unchanged. Cancel does not invoke
+   the power-profile backend.
+2. **Keyboard RGB:** Select a different preset → **Load preset** and
+   verify all four editor/strip colors match. Click **Apply preview**
+   and confirm its simulated status updates **without changing the
+   physical keyboard**. Click **Reset** and confirm the expected draft.
+3. **Native RGB UI guard:** With the editor slider at **65%**, real
+   **Apply to keyboard** and **Restore lighting** must be disabled.
+   You may move to **100%** solely to observe whether the buttons
+   become eligible; **do not click either**. Return to 65% afterward.
+4. **Responsive UI:** Restore the window to a smaller size, scroll to
+   the bottom of the RGB editor, and verify all controls stay reachable.
+   Confirm RPM-based turbine motion on the Dashboard looks smooth when
+   live fan readings change; the visual rate is intentionally scaled
+   down and is not literal fan revolution speed.
+
+**GUI install + rollback smoke test with no effect on the user's real
+GUI:** The helper below installs to a **temporary HOME**, checks
+`0.4.0-preview.1 → 0.4.0-preview.2 → 0.4.0-preview.1 →
+0.4.0-preview.2`, and checks the installed launcher while its working
+directory contains an old package. It uses `git archive` of the
+verified historical rollback commit; it cleans up its own temporary
+files. No `sudo` or driver/firmware operations are needed.
+
+```bash
+cd "$HOME/Nitro-Control-release-candidate"
+git fetch origin release/v0.4.0-preview.2
+git switch --detach origin/release/v0.4.0-preview.2
+bash scripts/smoke-test-gui-install-rollback-fedora.sh
+```
+
+**Expected terminal output:** Four `PASS: Nitro Control ...` version
+checks followed by `PASS: staged install, upgrade, rollback, re-upgrade,
+and launcher import isolation.` The command depends on Fedora's GTK4,
+Libadwaita and PyCairo packages being installed but **does not launch
+the GUI or change the real installation**. Keep this test separate from
+the later deliberate choice to install the published release in your
+normal `$HOME`.
+
 ## Source installation on Fedora
 
 **These commands are for the release candidate branch. Do not use a
