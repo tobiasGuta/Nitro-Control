@@ -190,6 +190,27 @@ maximized and smaller-window GTK renders to confirm that the empty
 bottom strip shrinks without stretching charts awkwardly or clipping
 the footer.
 
+## Fifth Fedora screenshot — maximized height accepted
+
+The owner provided a live-sensor screenshot after the vertical expansion
+change and said **"looks way better now"**. On the maximized Fedora desktop:
+
+- Both **wide side gutters and the prominent empty bottom strip** seen in
+  earlier screenshots are now resolved to ordinary window padding.
+- The turbine RPM gauges retain their proportions while the compact power
+  column and the stacked, real-only CPU/GPU history graphs fill the
+  available area.
+- The application continues to visibly identify **fan control mode as
+  Unknown** when no reliable control-mode data is available; it does not
+  invent fan modes or a CPU/GPU fan mapping.
+
+**Dashboard layout feedback: accepted for this screen size.** This is visual
+validation of a GTK rendering, *not* a new test of physical RGB Apply,
+real power-profile changes, or operation on all display sizes. The
+RPM-based animation is implemented but a still screenshot cannot confirm
+motion quality. Keep the PR as draft until Hardware details and Keyboard
+RGB page review and live workflow safety checks are complete.
+
 ## Layout mapped to the supplied reference screenshot
 
 | Screenshot visual element | GTK4 implementation | Data / permission boundary |
