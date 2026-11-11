@@ -11,6 +11,7 @@ import cairo  # PyGObject's Cairo draw-function foreign type adapter
 from gi.repository import Gtk
 
 from .fan_animation import fan_angle_step
+from .fan_presentation import fan_mode_description
 from .monitor_history import MonitorHistory
 
 
@@ -105,7 +106,7 @@ class FanDial(Gtk.DrawingArea):
     def _accessible(self):
         value = f"{self._rpm:,} RPM" if self._rpm is not None else "Unavailable"
         self.set_tooltip_text(
-            f"{self._name}: {value}; {self._mode} fan mode; read-only. "
+            f"{self._name}: {value}; {fan_mode_description(self._mode)}; read-only. "
             "Visual rotation follows measured RPM at a slowed display rate.")
 
     def update(self, name: str, rpm: int | None, mode: str) -> None:
