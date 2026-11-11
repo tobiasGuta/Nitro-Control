@@ -152,6 +152,10 @@ class NitroWindow(Adw.ApplicationWindow):
         self.connect("close-request", self._on_close)
         self._build()
         self._request_refresh()
+        self._fan_last_tick_us = GLib.get_monotonic_time()
+        # ~30 FPS is solely for decorative Cairo drawing; actual sensor RPM
+        # is still read on the separate four-second hardware refresh cycle.
+        GLib.timeout_add(33, self._on_fan_animation_tick)
         GLib.timeout_add_seconds(REFRESH_SECONDS, self._on_timer)
 
     def _build(self) -> None:
@@ -170,6 +174,7 @@ class NitroWindow(Adw.ApplicationWindow):
         stack = Gtk.Stack()
         stack.set_vexpand(True)
         stack.set_vhomogeneous(False)
+        self._page_stack = stack
         switcher = Gtk.StackSwitcher()
         switcher.set_stack(stack)
         header.pack_start(switcher)
@@ -478,6 +483,19 @@ class NitroWindow(Adw.ApplicationWindow):
         if self._closed:
             return False
         self._request_refresh()
+        return True
+
+    def _on_fan_animation_tick(self) -> bool:
+        if self._closed:
+            return False
+        now_us = GLib.get_monotonic_time()
+        elapsed_seconds = max(0.0, (now_us - self._fan_last_tick_us) / 1_000_000)
+        self._fan_last_tick_us = now_us
+        # Hidden pages and unmapped windows do not need frame redraws.
+        # Keeping the clock current avoids a big rotation jump on return.
+        if self.get_mapped() and self._page_stack.get_visible_child_name() == "dashboard":
+            for dial in self.fan_dials:
+                dial.animate(elapsed_seconds)
         return True
 
     def _request_refresh(self) -> None:
