@@ -85,7 +85,11 @@ class DashboardSafetyContracts(unittest.TestCase):
     def test_no_fabricated_fan_control_buttons(self):
         source = (ROOT / "nitro_control" / "ui.py").read_text()
         self.assertIn("FIRMWARE FAN MANAGEMENT", source)
-        self.assertIn("RPM is monitored, never manually driven.", source)
+        self.assertIn("Firmware-managed · monitoring only", source)
+        self.assertIn('value.set_text(fan.control_mode)', source)
+        self.assertNotIn('value.set_text(_number(fan.rpm, "RPM"))', source)
+        self.assertIn("self.overview_firmware_value.set_text(data.firmware_profile or \"Unavailable\")", source)
+        self.assertIn("self.overview_tuned_value.set_text(data.tuned_profile or \"Unavailable\")", source)
         self.assertNotIn('Gtk.Button(label="Max")', source)
         self.assertNotIn('Gtk.Button(label="Custom")', source)
         self.assertNotIn('Gtk.Button(label="CoolBoost")', source)
