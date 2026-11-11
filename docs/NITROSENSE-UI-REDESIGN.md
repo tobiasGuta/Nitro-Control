@@ -139,6 +139,31 @@ on the Fedora laptop for smooth motion (a still screenshot cannot verify
 animation), check that faster actual fan RPM gives faster-looking blades,
 and confirm an absent/stopped sensor is visually stationary.
 
+## Live Fedora test: maximized-window layout
+
+The owner provided **two live-mode Fedora screenshots** (not `--demo`),
+with reported CPU/GPU temperatures and fan speeds being read from the
+laptop. The smaller window has the desired top fan dials and lower split
+dashboard, but **maximizing previously left wide unused black gutters**:
+`page()` placed every tab inside an `Adw.Clamp(maximum_size=1500,
+tightening_threshold=1050)`, which constrained the dashboard even when
+the window had room to grow.
+
+**Current branch adjustment:** Let the **Dashboard** page use its
+`Gtk.ScrolledWindow` content directly, with full-width horizontal
+expansion and a modest 20px inset. Ensure the live-monitoring panel is
+`hexpand` so extra width goes to the graphs while the left power column
+stays compact and the two fan dials redistribute across the upper area.
+Continue clamping **Hardware details** and **Keyboard RGB** to readable
+form widths rather than stretching color pickers or settings rows across
+an ultra-wide desktop.
+
+**Pending visual verification:** Reopen the updated branch and compare
+both the ordinary and maximized dashboard on Fedora. This is a layout-only
+fix, not a new sensor or power feature; it changes neither fan/WMI access
+nor the independent RPM-based turbine animation. Horizontal behavior
+on especially narrow windows should also be checked separately.
+
 ## Layout mapped to the supplied reference screenshot
 
 | Screenshot visual element | GTK4 implementation | Data / permission boundary |
