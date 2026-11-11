@@ -250,6 +250,47 @@ must remain separately verified under explicit authorization and at
 100% initialization brightness. The underlying hardware backend was not
 modified by this design pass.
 
+## Fedora screenshot review — styled Hardware Details and Keyboard RGB
+
+The owner has now supplied live Fedora screenshots of **both redesigned
+non-dashboard pages**, including their scrolled lower sections.
+
+**Hardware Details — visually reviewed:** Graphics, Performance, Cooling
+and Temperature Sensors all render inside the matching angular metal
+headers and graphite panel shells. Read-only telemetry is present for
+NVIDIA RTX 3050 Ti Laptop GPU utilization, memory and power, firmware
+and TuneD profiles, two fan RPM sources, multiple unidentified Acer
+temperature sensors and NVMe temperatures. Unknown fan control modes
+and unidentified Acer sensor labels remain **unknown/identified as such**;
+we do not guess names or claim control over those devices. The long
+sensors list is scrollable in the actual GTK window.
+
+**Keyboard RGB — visually reviewed:** RGB hardware status, the new
+four-zone draft palette strip, and the four-zone studio all have the
+same styled panels. The strip shows the selected preset colors and
+explicitly says **NOT APPLIED TO KEYBOARD**. The owner separately
+captured the lower scrolled controls: brightness at **65%**, visible
+native WMI brightness warning, active simulated **Apply preview**
+button, and correctly **disabled physical Apply to keyboard and Restore
+lighting buttons**. This demonstrates the *visible fail-closed state*
+when the native physical initialization guard requires exactly 100%
+editor brightness. It is not evidence that the owner initiated a
+firmware write in this GUI trial.
+
+**Visual status:** All **three** redesigned tabs have been reviewed
+using actual reference-laptop GTK screenshots, with the maximized
+Dashboard proportions previously accepted by the owner. This meets
+the screenshot-review portion of the branch's acceptance checks but
+does **not** independently validate every button callback, keyboard
+firmware operation, or the effect of different monitor sizes.
+
+**Remaining before merging:** Check the local-only color/preset/preview
+workflow (no physical Apply needed); review keyboard and power-profile
+confirmation/disable states without making unnecessary hardware changes;
+ensure smaller-window scrolling and live animation still work. Keep
+the existing native RGB guard/Polkit tests passing. No speculative fan
+control, firmware writing, or system service changes are part of this work.
+
 ## Layout mapped to the supplied reference screenshot
 
 | Screenshot visual element | GTK4 implementation | Data / permission boundary |
@@ -335,11 +376,16 @@ replace that per-user UI copy, but **would not install drivers**.
 
 ## Why this remains a draft
 
-The Python and Cairo widget structure is implemented on this branch, but
-the developer environment does not have Fedora's GTK4 GUI stack or the Acer
-hardware to capture a real application screenshot. **Pixel-level fidelity,
-responsive breakpoints, actual GTK CSS rendering and live UI interactions
-need human review on the reference Fedora laptop before merging.**
+**The reference Fedora laptop has now supplied and visually reviewed
+live GTK screenshots of all three pages.** The Dashboard's ordinary and
+maximized proportions have also been refined in response to those
+screenshots. The draft remains open because screenshots alone do not
+verify every interaction, especially local-only RGB preset/preview
+behavior, power-profile confirmation, keyboard firmware authorization,
+and responsive behavior on smaller windows. These require explicit
+regression checks before merging; no needless physical reinitialization
+of a currently working keyboard should be performed just to validate
+the redesign.
 
 Related: [native RGB safety guide](NATIVE-RGB.md),
 [incident investigation](RGB-INCIDENT-2026-11.md),
