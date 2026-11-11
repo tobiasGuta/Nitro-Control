@@ -263,7 +263,7 @@ class NitroWindow(Adw.ApplicationWindow):
         fan_info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         fan_info.set_size_request(230, -1)
         fan_info.append(_label("FAN STATUS", css="nitro-accent"))
-        fan_info.append(_label("Firmware-managed · monitoring only", css="nitro-readonly"))
+        fan_info.append(_label("Live RPM · control mode may be unavailable", css="nitro-readonly"))
         # Show the *reported* fan modes here. The large dial is the sole
         # numerical RPM readout; repeating it at the left obscured the
         # reference's control/status hierarchy.
