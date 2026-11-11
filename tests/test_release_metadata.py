@@ -40,6 +40,21 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("python3-cairo", installer)
         self.assertIn("import cairo", installer)
 
+    def test_isolated_install_rollback_script_is_syntactically_safe(self):
+        script = ROOT / "scripts" / "smoke-test-gui-install-rollback-fedora.sh"
+        content = script.read_text(encoding="utf-8")
+        subprocess.run(["bash", "-n", str(script)], check=True, timeout=15)
+        # All four installer invocations are explicitly redirected to an
+        # isolated HOME, so no live per-user GUI installation is replaced.
+        self.assertIn('temp_home_parent="$(mktemp -d', content)
+        self.assertIn('HOME="$temp_home" bash "$repo_dir/scripts/install-fedora.sh"', content)
+        self.assertIn('HOME="$temp_home" bash "$old_source/scripts/install-fedora.sh"', content)
+        self.assertIn('git -C "$repo_dir" archive "$old_commit"', content)
+        self.assertIn('check_version "$old_version"', content)
+        self.assertIn('check_version "$new_version"', content)
+        self.assertNotIn("pkexec ", content)
+        self.assertNotIn("modprobe ", content)
+
     def test_release_notes_do_not_claim_unavailable_fan_controls(self):
         release_name = f"RELEASE-v{__version__}.md"
         notes = (ROOT / "docs" / release_name).read_text(encoding="utf-8")
