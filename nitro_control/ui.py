@@ -65,6 +65,13 @@ headerbar { background: #15151a; border-bottom: 1px solid #3a2026; }
 .nitro-fan-mode { color: #f04450; font-size: 16px; font-weight: 750; }
 .nitro-fan-status { background: rgba(43,43,48,0.30); border-bottom: 1px solid #35353a; padding: 7px 9px; }
 .nitro-panel-value { color: #e9e9ea; font-size: 14px; font-weight: 650; }
+.nitro-section-note { color: #b2b2b8; font-size: 12px; }
+.nitro-safety-hint { color: #ffba7d; font-size: 12px; font-weight: 700; }
+.nitro-panel-caption { color: #cfced3; font-size: 12px; font-weight: 750; letter-spacing: 1px; }
+.nitro-panel-group { margin: 0; }
+.nitro-panel-group row { background-color: #19191e; }
+.nitro-panel-group row:hover { background-color: #222228; }
+
 .nitro-readonly { color: #8e8e95; font-size: 11px; font-weight: 600; }
 .nitro-accent { color: #eb3546; font-size: 12px; font-weight: 700; }
 stack { background: #09090d; }
@@ -105,6 +112,24 @@ def _metric_card(title: str, icon: str) -> tuple[Gtk.Widget, Gtk.Label, Gtk.Labe
     frame.set_child(outer)
     frame.set_hexpand(True)
     return frame, value, hint
+
+
+def _panel_group(title: str, description: str,
+                 group: Adw.PreferencesGroup) -> Gtk.Widget:
+    """Present existing Libadwaita rows inside the dashboard's steel panel.
+
+    The wrapped rows preserve their original widgets, signals and permissions.
+    Move titles/descriptions into the panel shell to avoid doubled headings.
+    """
+    group.set_title("")
+    group.set_description("")
+    group.add_css_class("nitro-panel-group")
+    body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=11)
+    note = _label(description, css="nitro-section-note")
+    note.set_wrap(True)
+    body.append(note)
+    body.append(group)
+    return section(title, body)
 
 
 def _readout_row(title: str, subtitle: str = "") -> tuple[Adw.ActionRow, Gtk.Label]:
@@ -316,11 +341,13 @@ class NitroWindow(Adw.ApplicationWindow):
         footer.set_wrap(True)
         content.append(footer)
 
+        hardware_content.append(_label("HARDWARE DETAILS", css="hero-title"))
         hardware_content.append(_label(
-            "Detailed telemetry · unknown or unavailable values are not estimated",
+            "Real telemetry only · unidentified sensors stay unidentified",
             css="hero-subtitle"))
+        lighting_content.append(_label("KEYBOARD LIGHTING", css="hero-title"))
         lighting_content.append(_label(
-            "Native WMI and hardware permissions unchanged · physical Apply remains opt-in",
+            "Four-zone preview is simulated · physical lighting requires explicit authorization",
             css="hero-subtitle"))
 
         self.gpu_group = Adw.PreferencesGroup(title="Graphics", description="NVIDIA readings are optional; the dashboard remains usable without nvidia-smi.")
@@ -330,7 +357,9 @@ class NitroWindow(Adw.ApplicationWindow):
             row, val = _readout_row(title)
             self.gpu_group.add(row)
             self.gpu_rows[key] = val
-        hardware_content.append(self.gpu_group)
+        hardware_content.append(_panel_group(
+            "Graphics", "Optional NVIDIA information, read-only. Missing GPU data is not estimated.",
+            self.gpu_group))
 
         profile_group = Adw.PreferencesGroup(title="Performance", description="Read-only firmware and TuneD state. Firmware state is read-only.")
         self.profile_rows = {}
@@ -343,7 +372,9 @@ class NitroWindow(Adw.ApplicationWindow):
         self.firmware_choices_row.set_subtitle_lines(0)
         self.firmware_choices_row.set_subtitle("Checking firmware capabilities…")
         profile_group.add(self.firmware_choices_row)
-        hardware_content.append(profile_group)
+        hardware_content.append(_panel_group(
+            "Performance", "Acer firmware and TuneD state are read-only; no raw firmware-mode controls.",
+            profile_group))
 
         # These are the SAME advertised GNOME profile options and the SAME
         # explicit apply/confirm path. Only the wide Adw row is replaced with
@@ -395,7 +426,9 @@ class NitroWindow(Adw.ApplicationWindow):
             row, val = _readout_row(f"Fan {i + 1}")
             cooling_group.add(row)
             self.fan_rows.append((row, val))
-        hardware_content.append(cooling_group)
+        hardware_content.append(_panel_group(
+            "Cooling", "Real fan RPM only. Firmware keeps control; no manual PWM operations.",
+            cooling_group))
 
         thermal_group = Adw.PreferencesGroup(title="Temperature sensors", description="Unlabeled Acer firmware sensors are not guessed to be CPU or GPU.")
         self.thermal_rows = []
@@ -403,7 +436,9 @@ class NitroWindow(Adw.ApplicationWindow):
             row, val = _readout_row(f"Sensor {i + 1}")
             thermal_group.add(row)
             self.thermal_rows.append((row, val))
-        hardware_content.append(thermal_group)
+        hardware_content.append(_panel_group(
+            "Temperature sensors", "Unknown Acer sensors remain unidentified; drive temperatures use reported labels.",
+            thermal_group))
 
         rgb_group = Adw.PreferencesGroup(title="Keyboard lighting", description="Physical Apply is available only when a compatible RGB driver and authorized helper are present.")
         rgb_row, self.rgb_value = _readout_row("Acer RGB WMI interface")
@@ -414,7 +449,10 @@ class NitroWindow(Adw.ApplicationWindow):
         self.rgb_capability = Adw.ActionRow(title="Physical lighting", subtitle="Checking for a supported RGB control endpoint…")
         self.rgb_capability.set_subtitle_lines(0)
         rgb_group.add(self.rgb_capability)
-        lighting_content.append(rgb_group)
+        lighting_content.append(_panel_group(
+            "RGB hardware status", "The gaming WMI device may have no permanently bound driver; "
+            "the native helper is loaded only for an authorized operation.",
+            rgb_group))
 
         # The preview is in memory; physical Apply follows a separate authorized path.
         editor = Adw.PreferencesGroup(
@@ -490,7 +528,10 @@ class NitroWindow(Adw.ApplicationWindow):
         )
         self.rgb_hardware_status.set_subtitle_lines(0)
         editor.add(self.rgb_hardware_status)
-        lighting_content.append(editor)
+        lighting_content.append(_panel_group(
+            "Four-zone RGB studio", "Preset and color edits are a local draft. "
+            "Apply preview never touches the keyboard; physical Apply/Restore requires permission.",
+            editor))
         self._set_rgb_editor(self._rgb_preview.current())
 
         note = _label("Fans remain read-only  •  Preview is simulated; physical Apply uses a detected driver and administrator-authorized helper  •  Nitro Control v" + __version__, css="info-note")
