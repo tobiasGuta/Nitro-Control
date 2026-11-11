@@ -539,6 +539,24 @@ caused the earlier zeroed firmware zone state. Monitor normal sleep/wake and
 future boots before concluding that the unexplained blackout is resolved;
 keep [issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3) open.
 
+### First post-cleanup suspend/resume: passed
+
+Following the successful post-Linuwu-removal reboot, the AN515-58 owner
+independently reported that a **normal suspend/resume also passed**:
+
+- **All four RGB zones retained their configured colors.**
+- **Fn+F9/Fn+F10 brightness controls continued to work correctly.**
+- **Fans continued to operate normally** (observational confirmation, without
+  fresh numeric RPM telemetry).
+
+Together these observations establish **one successful reboot and one
+successful suspend/resume following legacy module removal**, without any
+reported need to reinitialize RGB through the manual Restore workflow.
+They do **not** establish whether Linuwu or the earlier S3/EC transition
+caused the original zeroed firmware zone state. Monitor normal future
+updates and boots, and preserve logs if the blackout recurs. See
+[issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3).
+
 ## Testing and release gates
 
 Offline validation:
