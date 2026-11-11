@@ -319,7 +319,7 @@ build, kernel blacklist, boot service, startup hook, or GRUB modification.
 | “module digest mismatch” | Root-installed module versus digest | Reinstall from reviewed, rebuilt local source |
 | “firmware write failed” | Kernel logs, module still loaded? | Collect log; do not retry blindly |
 | Readback says success but LEDs dark | Actual keyboard, Fn brightness | Record results; do not misreport physical success |
-| RGB dark after Fedora updates, but `native-wmi` still available | `uname -r`, `lsmod`, `--rgb-probe` | Try a few Fn+F10 presses first; if still dark, use authorized **Restore lighting** at editor brightness **100%**. Do **not** rebuild a module already valid for the running kernel |
+| RGB dark after Fedora updates, but `native-wmi` still available | `uname -r`, `lsmod`, `--rgb-probe` | Fn+F9/Fn+F10 may do nothing in this state (confirmed Nov 10); use authorized **Restore lighting** at editor brightness **100%**. No rebuild when the current-kernel backend is already valid |
 | Apply/Restore disabled below 100% | Native WMI temporary brightness guard | Set editor to 100%, Apply, then use Fn keys for actual dimming |
 | Fn+F9 changes colors after a WMI apply | Issue #2: color/brightness interaction | Do not repeat 65%; compare read-only WMI states and use known-good 100% workflow |
 | `rmmod` failure | `lsmod` and kernel journal | Stop further tests; recover or reboot to stock driver |
@@ -335,14 +335,19 @@ No Linuwu or native PoC module was resident. **No kernel mismatch was
 demonstrated**; `low-power` was observed but was not shown to cause the
 lighting issue.
 
-The user followed a controlled recovery procedure: try Fn+F10 to rule out
-hardware brightness being zero; open Nitro-Control and select the desired
-four colors at editor brightness **100%**; authorize **Restore lighting** if
-the LEDs remain dark; verify the physical keyboard and Fn brightness keys.
-The owner reported **successful recovery**, without rebuilding or reinstalling
-the module. Because the exact moment the lights came back was not separately
-reported, this does **not** isolate Fn+F10 versus the authorized Restore
-operation as the decisive action.
+**The owner clarified the decisive recovery step:** While the keyboard
+was dark, pressing **Fn+F9 and Fn+F10 had no effect**. The lighting returned
+only after opening Nitro-Control, setting the desired four colors with the
+editor slider at **100%**, and using the authorized **Restore lighting**
+operation. **No module rebuild or reinstall was needed.** The GUI's native
+recovery executes the guarded Acer WMI initialization sequence; this supports
+a firmware RGB initialization/state issue over a simple Fn brightness-at-zero
+explanation. It does **not** prove which WMI method or prior update event
+caused the blackout.
+
+The owner has not separately reported the Fn keys' behavior **after** this
+latest recovery, nor fresh fan RPM telemetry following it. Do not infer
+those checks passed merely because the lighting returned.
 
 This is confirmation that the **manual recovery workflow works on this
 existing kernel**, not proof of a particular firmware reset cause, repeatable
