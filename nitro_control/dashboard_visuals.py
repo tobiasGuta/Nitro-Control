@@ -10,6 +10,7 @@ import math
 import cairo  # PyGObject's Cairo draw-function foreign type adapter
 from gi.repository import Gtk
 
+from .fan_animation import fan_angle_step
 from .monitor_history import MonitorHistory
 
 
@@ -86,7 +87,7 @@ class Ribbon(Gtk.DrawingArea):
         _text(ctx, self.title.upper(), 16, 25, 13, bold=True)
 
 class FanDial(Gtk.DrawingArea):
-    """A decorative turbine dial with an *unscaled* real RPM readout."""
+    """Animated display turbine with an *unscaled* measured RPM label."""
 
     def __init__(self, caption: str):
         super().__init__()
@@ -94,6 +95,7 @@ class FanDial(Gtk.DrawingArea):
         self._rpm: int | None = None
         self._mode = "Unknown"
         self._name = caption
+        self._rotation = 0.0
         self.set_content_width(220)
         self.set_content_height(223)
         self.set_hexpand(True)
@@ -103,7 +105,8 @@ class FanDial(Gtk.DrawingArea):
     def _accessible(self):
         value = f"{self._rpm:,} RPM" if self._rpm is not None else "Unavailable"
         self.set_tooltip_text(
-            f"{self._name}: {value}; {self._mode} fan mode; read-only")
+            f"{self._name}: {value}; {self._mode} fan mode; read-only. "
+            "Visual rotation follows measured RPM at a slowed display rate.")
 
     def update(self, name: str, rpm: int | None, mode: str) -> None:
         self._name = name
@@ -111,6 +114,13 @@ class FanDial(Gtk.DrawingArea):
         self._mode = mode
         self._accessible()
         self.queue_draw()
+
+    def animate(self, elapsed_seconds: float) -> None:
+        """Advance only this rotor's painted blade angle; never write hardware."""
+        step = fan_angle_step(self._rpm, elapsed_seconds)
+        if step > 0:
+            self._rotation = (self._rotation + step) % math.tau
+            self.queue_draw()
 
     def _draw(self, _area, ctx, width, height):
         cx = width / 2
@@ -124,7 +134,7 @@ class FanDial(Gtk.DrawingArea):
         for i in range(blades):
             ctx.save()
             ctx.translate(cx, cy)
-            ctx.rotate(2 * math.pi * i / blades)
+            ctx.rotate(self._rotation + 2 * math.pi * i / blades)
             ctx.move_to(radius * 0.69, -1)
             ctx.curve_to(radius * 0.84, -radius * 0.21,
                          radius * 1.13, -radius * 0.27,
