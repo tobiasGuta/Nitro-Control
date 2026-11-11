@@ -93,6 +93,10 @@ class DashboardSafetyContracts(unittest.TestCase):
         self.assertNotIn('Gtk.Button(label="Max")', source)
         self.assertNotIn('Gtk.Button(label="Custom")', source)
         self.assertNotIn('Gtk.Button(label="CoolBoost")', source)
+        self.assertNotIn('Fan Max / Custom unavailable', source)
+        self.assertNotIn('No CoolBoost / Max / Custom PWM controls', source)
+        self.assertIn('No manual fan speed control', source)
+        self.assertIn('button.suggested-action:disabled', source)
 
 
 if __name__ == "__main__":
