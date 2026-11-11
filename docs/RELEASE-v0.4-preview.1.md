@@ -6,6 +6,32 @@ Acer Nitro AN515-58 four-zone RGB reference device. The preview does **not**
 ship a replacement for upstream Linux `acer_wmi` and is **not yet suitable
 for unqualified deployment across other Nitro laptops**.
 
+## November 2026 field investigation (post-preview follow-up)
+
+After the original November 6 validation, the reference AN515-58 experienced
+a keyboard RGB blackout. Kernel logs showed brightness 100 and four **zero**
+firmware RGB zone readbacks; manual Nitro-Control **Restore lighting** at
+editor brightness 100 restored both physical colors and Fn brightness keys.
+
+The owner subsequently identified a legacy Linuwu Sense module that still
+advertised the same Acer WMI device alias as stock `acer_wmi`, causing both
+modules to resolve for that device despite Linuwu's old systemd service
+being disabled. After safely removing the unused legacy module and
+refreshing module aliases, **one ordinary reboot and one suspend/resume
+both passed** physical four-zone RGB, Fn+F9/Fn+F10 and fan-function checks.
+`native-wmi` remained available with only stock `acer_wmi` resident.
+A separate current-directory Python import-shadowing bug was fixed in
+[PR #4](https://github.com/tobiasGuta/Nitro-Control/pull/4) and verified
+on the same reference laptop.
+
+**This is reassuring field evidence, not proof that Linuwu caused the
+original zeroed RGB state or a guarantee across future updates.** Full
+observations, safety considerations and troubleshooting are in
+[November 2026 RGB incident report](RGB-INCIDENT-2026-11.md) and
+[issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3).
+The feature remains experimental and opt-in; no automatic firmware
+initialization service has been added.
+
 ## Hardware result and scope
 
 The reference hardware owner reported the following on **November 6, 2026**,
