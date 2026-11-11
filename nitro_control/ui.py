@@ -185,14 +185,24 @@ class NitroWindow(Adw.ApplicationWindow):
         def page(key: str, title: str) -> Gtk.Box:
             scroll = Gtk.ScrolledWindow()
             scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-            clamp = Adw.Clamp(maximum_size=1500, tightening_threshold=1050)
-            clamp.set_hexpand(True)
-            scroll.set_child(clamp)
+            scroll.set_hexpand(True)
             inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=15)
             inner.set_hexpand(True)
+            inner.set_halign(Gtk.Align.FILL)
             for side in ("top", "bottom", "start", "end"):
                 getattr(inner, f"set_margin_{side}")(20)
-            clamp.set_child(inner)
+            if key == "dashboard":
+                # A max-width Adw.Clamp centered the dashboard on a maximized
+                # desktop and left wide unused black gutters at both edges.
+                # The dashboard's fixed-width left status column and expanding
+                # monitoring pane can fill the actual available viewport.
+                scroll.set_child(inner)
+            else:
+                # Long settings and RGB edit rows remain comfortably readable.
+                clamp = Adw.Clamp(maximum_size=1100, tightening_threshold=750)
+                clamp.set_hexpand(True)
+                clamp.set_child(inner)
+                scroll.set_child(clamp)
             stack.add_titled(scroll, key, title)
             return inner
 
@@ -217,6 +227,7 @@ class NitroWindow(Adw.ApplicationWindow):
         # The reference's large upper fan section: two turbines and a passive
         # mode readout, not copied Max/Custom control buttons.
         fans = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
+        fans.set_hexpand(True)
         fan_info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         fan_info.set_size_request(230, -1)
         fan_info.append(_label("FAN STATUS", css="nitro-accent"))
@@ -285,7 +296,9 @@ class NitroWindow(Adw.ApplicationWindow):
             "GPU · temperature / utilization", "gpu_celsius", "gpu_utilization_percent")
         monitors.append(self.cpu_graph)
         monitors.append(self.gpu_graph)
-        lower.append(section("Live monitoring", monitors))
+        monitoring_section = section("Live monitoring", monitors)
+        monitoring_section.set_hexpand(True)
+        lower.append(monitoring_section)
 
         footer = _label(
             "Real hardware readings only  •  Fans read-only  •  "
