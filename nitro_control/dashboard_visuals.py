@@ -171,7 +171,7 @@ class TelemetryGraph(Gtk.DrawingArea):
         self.field = field
         self.extra = extra
         self.history = MonitorHistory()
-        self.set_content_height(180)
+        self.set_content_height(145)
         self.set_hexpand(True)
         self.set_draw_func(self._draw)
         self.set_tooltip_text(f"{title} monitoring history")
