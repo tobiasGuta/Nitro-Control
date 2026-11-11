@@ -305,6 +305,38 @@ The dependency warning and previously reported shutdown assertion
 remain documented observations, not evidence of lost functionality
 or native RGB problems.
 
+## GUI setting acceptance — Fedora AN515-58 (November 11, 2026)
+
+The owner installed the opt-in `feat/dashboard-tray-setting` source
+into their own per-user Nitro Control application directory and reported
+that **launching from the GNOME Activities application icon works**.
+They also confirmed **all requested dashboard/tray lifecycle checks
+passed**, including:
+
+- Enabling **Keep Nitro-Control in the system tray** from the dashboard
+  header gear menu; no manually run `--tray` command is required
+- One indicator appears in the top bar; closing the dashboard keeps
+  its separate sensor-monitoring process alive
+- **Open Nitro Control** from the indicator reopens the GTK4 dashboard
+- **Quit tray** stops the indicator and monitoring; the saved preference
+  starts one again on the next normal dashboard launch
+- The preference persists across separate dashboard launches
+- Disabling the preference prevents later automatic dashboard-triggered
+  starts; the already-running indicator is terminated separately using
+  its explicit **Quit tray** action
+
+These observations complete the main **live GNOME acceptance tests**
+for the opt-in dashboard setting. Automated Python 3.11/3.13 tests
+additionally verify default-off behavior, safe preference storage,
+demo/CLI isolation, symlink and special-file defenses and separation
+of GTK3 from GTK4. There were **no changes to hardware write paths**.
+
+**Scope:** The owner installed a development GUI for testing; the source
+merge does not perform another installation. No GNOME-login autostart
+was enabled by the code. The published `v0.4.0-preview.2` tag is
+unchanged, and the GTK/Ayatana warnings remain investigated under
+[issue #10](https://github.com/tobiasGuta/Nitro-Control/issues/10).
+
 ## Safety, limitations and review gates
 
 - The tray uses the existing **read-only** `HardwareReader.collect()`.
