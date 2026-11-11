@@ -102,6 +102,35 @@ class DashboardSafetyContracts(unittest.TestCase):
         # No synthetic sensor series may be introduced to fill graph space.
         self.assertIn("self._history.record(", source)
 
+    def test_hardware_and_rgb_pages_use_the_same_panel_shell(self):
+        source = (ROOT / "nitro_control" / "ui.py").read_text()
+        self.assertIn("def _panel_group(", source)
+        self.assertIn("group.set_title(\"\")", source)
+        self.assertIn("group.set_description(\"\")", source)
+        self.assertIn("return section(title, body)", source)
+        for heading in ("Graphics", "Performance", "Cooling",
+                        "Temperature sensors", "RGB hardware status",
+                        "Four-zone RGB studio"):
+            self.assertIn(f'\"{heading}\"', source)
+        self.assertIn("hardware_content.append(_panel_group(", source)
+        self.assertIn("lighting_content.append(_panel_group(", source)
+
+    def test_color_strip_is_draft_only_and_rgb_guard_remains_in_place(self):
+        source = (ROOT / "nitro_control" / "ui.py").read_text()
+        visual = (ROOT / "nitro_control" / "dashboard_visuals.py").read_text()
+        self.assertIn("class RGBZoneStrip(Gtk.DrawingArea):", visual)
+        self.assertIn("DRAFT PALETTE · NOT APPLIED TO KEYBOARD", visual)
+        self.assertIn("self.rgb_strip = RGBZoneStrip()", source)
+        self.assertIn("self.rgb_strip.update_zones(plan.zones)", source)
+        self.assertIn("self.rgb_native_hint.set_visible(native and not supported_brightness)", source)
+        self.assertIn("supported_brightness = not native or self._rgb_draft().brightness == 100", source)
+        self.assertIn("self._rgb_client.apply(plan)", source)
+        self.assertIn("self._confirm_rgb_hardware", source)
+        # The custom paint code never invokes the privileged write path.
+        rgb_section = visual.split("class RGBZoneStrip", 1)[1].split("class TelemetryGraph", 1)[0]
+        for unsafe in ("subprocess", "pkexec", "insmod", "modprobe", "pwm", "self._rgb_client"):
+            self.assertNotIn(unsafe, rgb_section)
+
     def test_real_power_control_remains_select_apply_confirm(self):
         source = (ROOT / "nitro_control" / "ui.py").read_text()
         self.assertIn("self.power_combo.connect(\"notify::selected\", self._on_power_selection)", source)
