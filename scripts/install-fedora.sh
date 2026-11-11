@@ -17,8 +17,12 @@ find "$app_dir/nitro_control" -type d -name __pycache__ -prune -exec rm -rf '{}'
 cat > "$bin_dir/nitro-control" <<'WRAPPER'
 #!/usr/bin/env bash
 set -euo pipefail
-export PYTHONPATH="$HOME/.local/share/nitro-control${PYTHONPATH:+:$PYTHONPATH}"
-exec /usr/bin/python3 -m nitro_control "$@"
+# Do not import an outdated nitro_control package from the caller's cwd.
+app_dir="$HOME/.local/share/nitro-control"
+cd -- "$app_dir"
+export PYTHONPATH="$app_dir${PYTHONPATH:+:$PYTHONPATH}"
+# -P prevents Python from prepending an unsafe cwd to sys.path (Python 3.11+).
+exec /usr/bin/python3 -P -m nitro_control "$@"
 WRAPPER
 chmod 755 "$bin_dir/nitro-control"
 cat > "$desktop_dir/io.github.tobiasguta.NitroControl.desktop" <<DESKTOP

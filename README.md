@@ -106,7 +106,7 @@ From the project directory:
 ./scripts/install-fedora.sh
 ```
 
-This installs a *per-user copy* into `~/.local/share/nitro-control`, a launcher under `~/.local/bin`, and a `.desktop` file. No `sudo` is needed for the installation script once the native libraries above are present. Open **Nitro Control** from the GNOME app grid, or run `~/.local/bin/nitro-control`.
+This installs a *per-user copy* into `~/.local/share/nitro-control`, a launcher under `~/.local/bin`, and a `.desktop` file. No `sudo` is needed for the installation script once the native libraries above are present. Open **Nitro Control** from the GNOME app grid, or run `~/.local/bin/nitro-control`. The launcher uses the installed application directory rather than the caller's current directory, so invoking it from an older Git checkout cannot accidentally import that checkout's outdated Python package. Existing users should rerun `./scripts/install-fedora.sh` from updated `main` to receive the launcher fix; this does not reinstall kernel modules or change RGB firmware.
 
 Remove only these installed copies with `./scripts/uninstall.sh`. This does not remove your source checkout or dependencies.
 
