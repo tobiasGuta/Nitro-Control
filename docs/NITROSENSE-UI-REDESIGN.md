@@ -47,6 +47,35 @@ Comparison should prioritize **layout proportions and panel hierarchy**,
 then detailed typography and graphite texture. Live sensor and power/RGB
 tests are still separately required; `--demo` confirms only the design.
 
+## Second Fedora screenshot review — proportions corrected
+
+The owner supplied a second screenshot (native GTK demo preview at
+approximately 1638 × 895). The reference's main **top fan section plus
+a narrow lower left control column and broad right monitoring charts**
+is now visibly reproduced. The lower mode column is no longer wider
+than the chart region; turbine blades are more curved and steel header
+gradients are clearer.
+
+The remaining layout issues visible in the second screenshot were
+**duplicated RPM numbers** in both the fan dials and the upper panel's
+left text column, a mostly **empty lower half of the mode panel**, and
+still relatively plain panel background treatments compared with
+the dense NitroSense reference. The next refinement:
+
+- Use the left fan column for the **actual read-only firmware-reported
+  fan modes** and show numerical RPM only in the two turbine dials.
+  Deliberately no Max/Custom buttons or unsupported CPU/GPU-fan mapping.
+- Fill the mode panel with the **real currently reported Acer firmware
+  profile and TuneD profile** (read-only), keeping the existing
+  GNOME power-profile selection and explicit confirmation.
+- Preserve the wide real-only CPU/GPU graphs; their straight lines in
+  `--demo` are correct for the constant supplied demo samples and
+  must not be decorated with fabricated spikes.
+
+**Pending actual screenshot review:** The owner has not yet visually
+validated these latest changes, nor the Keyboard RGB and Hardware
+details tabs. No changes to fan hardware, Polkit or RGB drivers were made.
+
 ## Layout mapped to the supplied reference screenshot
 
 | Screenshot visual element | GTK4 implementation | Data / permission boundary |
