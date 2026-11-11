@@ -436,6 +436,28 @@ No further physical keyboard test is requested for this label fix.
 labels in a real GTK preview on this Fedora reference laptop, and no
 regression to the dashboard gauges, Hardware Details, or live sensor data.
 
+## Live Fedora confirmation — CPU/GPU fan labels
+
+The owner supplied a final live Fedora screenshot after the
+AN515-58-only fan naming update. Visual verification **passed**:
+
+- First Acer HWMON channel is captioned **CPU Fan**; second is **GPU Fan**
+  in both the turbine gauges and the status readouts.
+- The previously red **Unknown** control-mode message has become the
+  neutral **Mode not reported** for both channels, which accurately means
+  `pwmN_enable` mode data is unavailable; it does **not** imply either
+  fan is stopped or manually controlled.
+- The screenshot shows valid measured speeds of **2,803 RPM** and
+  **3,157 RPM** alongside actual CPU/GPU temperature history.
+- The visual-only animated turbine code, live read-only RPM values, and
+  existing power/RGB safety pathways are unchanged by this naming fix.
+
+**The CPU/GPU naming and neutral missing-mode display are visually
+accepted on the reference laptop.** A still screenshot cannot prove
+rotor animation speed or actual physical fan mapping by observation
+alone; the naming additionally relies on the upstream `acer_wmi`
+fan-channel map described above.
+
 ## Acceptance checks before merging
 
 - Screenshot inspection on **Fedora 45 + GTK4/Libadwaita** at a laptop-sized
@@ -453,18 +475,23 @@ regression to the dashboard gauges, Hardware Details, or live sensor data.
   hardware regression tests must be performed on the reference laptop**.
   Offline CI alone is insufficient to claim a pixel-perfect replica.
 
-## Why this remains a draft
+## Remaining scope and merge considerations
 
-**The reference Fedora laptop has now supplied and visually reviewed
-live GTK screenshots of all three pages.** The Dashboard's ordinary and
-maximized proportions have also been refined in response to those
-screenshots. The draft remains open because screenshots alone do not
-verify every interaction, especially local-only RGB preset/preview
-behavior, power-profile confirmation, keyboard firmware authorization,
-and responsive behavior on smaller windows. These require explicit
-regression checks before merging; no needless physical reinitialization
-of a currently working keyboard should be performed just to validate
-the redesign.
+**The owner has now reviewed live GTK screenshots of all three pages,
+the ordinary/maximized Dashboard, both CPU/GPU fan labels, and the
+smaller-window RGB scrolling.** They also reported passing the local
+RGB preset/preview/reset workflow with no physical LED changes, and
+the desktop power-profile confirmation Cancel workflow. Automated core
+tests cover the data/safety contracts.
+
+The **redesign-specific physical RGB Apply/Restore operation was not
+retested**, deliberately: it would reinitialize an already working
+controller and the underlying privileged backend has not changed.
+A screenshot alone also cannot independently prove the smoothness or
+speed scaling of animated turbines. Retain the native 100%-brightness,
+Polkit and explicit-confirmation safeguards. This PR can undergo final
+code review without requiring unnecessary firmware writes; merging
+should be a deliberate separate decision.
 
 Related: [native RGB safety guide](NATIVE-RGB.md),
 [incident investigation](RGB-INCIDENT-2026-11.md),
