@@ -6,22 +6,30 @@ Version 0.4.0-preview.1 (opt-in Acer WMI RGB, hardware-validated on a reference 
 
 Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. The GUI never runs as root or directly calls WMI. An optional, separately installed native-RGB development backend can execute a root-owned, one-shot WMI kernel module while keeping stock `acer_wmi` loaded. It never writes fan PWM.
 
-## NitroSense-inspired UI redesign (experimental branch)
+## NitroSense-inspired dashboard (unreleased GUI update)
 
-A **separate, unmerged** GTK4/Cairo GUI branch,
-`feat/nitrosense-inspired-dashboard`, explores the industrial dark/steel/red
-look of the owner's reference NitroSense screenshot. It includes turbine-style
-read-only RPM displays, charts drawn only from actual temperature/GPU
-utilization samples, and a panel-style power mode interface. The existing
-power-profile authorization and four-zone RGB Polkit/100%-brightness guards
-remain unchanged; **fan Max/Custom/CoolBoost controls are not supported and
-are not emulated**.
+Nitro Control now features an original **GTK4/Cairo** graphite-and-red
+dashboard inspired by the owner's NitroSense screenshots. It includes
+independently animated, **read-only** CPU/GPU fan RPM turbines on the
+reference AN515-58; actual CPU/GPU temperature and GPU-utilization history;
+a compact Fedora power-profile selector; and matching metallic Hardware
+Details and four-zone RGB editor pages. Missing sensors remain unavailable
+rather than turning into invented readings or simulated spikes. The fan
+animation is slowed for display; the RPM numbers are the real readings.
 
-For the design mapping, visual review checklist, safe standalone `--demo`
-launch, and Fedora `python3-cairo` prerequisite, see
-[the draft GUI design notes](docs/NITROSENSE-UI-REDESIGN.md). The branch
-should not replace the stable application until the reference-machine GUI
-and physical hardware regression checks pass.
+The power-profile confirmation flow and four-zone RGB
+**Polkit authorization + 100%-brightness native WMI initialization guard**
+are unchanged. **Fan Max/Custom/CoolBoost controls are not supported or
+emulated**. The hardware backend remains experimental and opt-in: merging
+the UI does not install kernel drivers or enable boot-time RGB changes.
+
+The owner visually reviewed all three pages, ordinary/maximized layout,
+and confirmed the local-only RGB preset/preview/reset workflow and
+power-profile confirmation flow on Fedora 45. This is a **source update**,
+not a separately published release. See
+[GUI design and validation notes](docs/NITROSENSE-UI-REDESIGN.md);
+the GTK/Cairo UI requires Fedora `python3-cairo` in addition to the
+existing GTK4/Libadwaita prerequisites.
 
 ## v0.4.0-preview.1: native AN515-58 RGB while preserving stock Acer monitoring
 
