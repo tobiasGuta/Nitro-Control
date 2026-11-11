@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 
+import cairo  # PyGObject's Cairo draw-function foreign type adapter
 from gi.repository import Gtk
 
 from .monitor_history import MonitorHistory
@@ -48,7 +49,7 @@ class Ribbon(Gtk.DrawingArea):
         self.set_halign(Gtk.Align.START)
         self.set_draw_func(self._draw)
         self.set_tooltip_text(title)
-        self.update_property([Gtk.AccessibleProperty.LABEL], [title])
+        # GTK's tooltip provides readable text alongside the Cairo label.
 
     def _draw(self, _area, ctx, width, height):
         w = min(width, 258)
@@ -88,10 +89,8 @@ class FanDial(Gtk.DrawingArea):
 
     def _accessible(self):
         value = f"{self._rpm:,} RPM" if self._rpm is not None else "Unavailable"
-        self.update_property(
-            [Gtk.AccessibleProperty.LABEL],
-            [f"{self._name}: {value}; {self._mode} fan mode; read-only"],
-        )
+        self.set_tooltip_text(
+            f"{self._name}: {value}; {self._mode} fan mode; read-only")
 
     def update(self, name: str, rpm: int | None, mode: str) -> None:
         self._name = name
@@ -146,7 +145,7 @@ class TelemetryGraph(Gtk.DrawingArea):
         self.set_content_height(180)
         self.set_hexpand(True)
         self.set_draw_func(self._draw)
-        self.update_property([Gtk.AccessibleProperty.LABEL], [f"{title} monitoring history"])
+        self.set_tooltip_text(f"{title} monitoring history")
 
     def set_history(self, history: MonitorHistory):
         self.history = history
@@ -159,8 +158,7 @@ class TelemetryGraph(Gtk.DrawingArea):
             if self.extra:
                 detail += (f", {util:.0f}% utilization" if util is not None else
                            ", utilization unavailable")
-            self.update_property([Gtk.AccessibleProperty.LABEL],
-                                 [f"{self.title}: {detail}; recent real readings"])
+            self.set_tooltip_text(f"{self.title}: {detail}; recent real readings")
         self.queue_draw()
 
     def _plot(self, ctx, values: tuple[float | None, ...], start: float,
