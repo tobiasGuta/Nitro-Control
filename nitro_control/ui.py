@@ -31,7 +31,14 @@ window.nitro-window { background: #09090d; color: #eeeeef; }
 headerbar { background: #15151a; border-bottom: 1px solid #3a2026; }
 .nitro-brand { color: #f0f0f0; font-size: 20px; font-weight: 800; letter-spacing: 5px; }
 .nitro-section {
-    background: linear-gradient(to bottom, #242428, #101013 14%, #080809 66%, #0b0b0e);
+    background-color: #101013;
+    /* Repeated 4px steel/scanline shading layered above graphite. These
+       are decorative CSS backgrounds, not any hardware measurement. */
+    background-image:
+        linear-gradient(to bottom, rgba(255,255,255,0.026), transparent 55%, rgba(0,0,0,0.07)),
+        linear-gradient(to bottom, #252529, #111115 14%, #080809 67%, #101014);
+    background-size: 100% 4px, 100% 100%;
+    background-repeat: repeat-y, no-repeat;
     border: 1px solid #555358;
     border-radius: 6px 7px 18px 18px;
     box-shadow: inset 0 1px rgba(255,255,255,0.16), 0 4px 15px rgba(0,0,0,0.45);
