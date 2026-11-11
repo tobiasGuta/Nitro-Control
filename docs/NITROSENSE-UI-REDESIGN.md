@@ -388,6 +388,54 @@ confirm the RGB editor remains scrollable in a smaller window. Continue
 to keep this PR in draft until remaining acceptance checks are explicitly
 reviewed.
 
+## AN515-58 fan identity and unreported mode follow-up
+
+After the owner confirmed that the power-profile **Cancel** test and
+small-window RGB scrolling passed, they asked why Nitro-Control displayed
+**Fan 1 / Fan 2** and a large red **Unknown**, while the Windows
+NitroSense screenshot names **CPU / GPU** fan rotors.
+
+**Root cause of "Unknown":** The read-only `HardwareReader._acer()`
+reads actual RPM from `acer` HWMON `fan1_input`/`fan2_input`, but
+tries `pwm1_enable`/`pwm2_enable` to obtain the control mode.
+On the reference laptop, these mode attributes were not reported to the
+app, so `Fan.control_mode` is `Unknown` even when real RPM is valid.
+This **does not mean a failed fan or prove automatic control**. The
+updated presentation says **"Mode not reported"** in neutral gray,
+without claiming Auto/Manual/Turbo or adding PWM controls.
+
+**CPU/GPU evidence:** The upstream Linux
+[`acer-wmi.c`](https://github.com/torvalds/linux/blob/master/drivers/platform/x86/acer-wmi.c)
+declares `acer_wmi_fan_channel_to_sensor_id[0]` as
+`ACER_WMID_SENSOR_CPU_FAN_SPEED` and
+`acer_wmi_fan_channel_to_sensor_id[1]` as
+`ACER_WMID_SENSOR_GPU_FAN_SPEED`. These correspond to HWMON
+`fan1_input` (CPU) and `fan2_input` (GPU), which is consistent with
+the OEM's NitroSense naming for the reference AN515-58.
+
+To avoid overgeneralizing the identity to other hardware,
+`fan_presentation.py` maps **only generic Fan 1/Fan 2** names to
+**CPU Fan/GPU Fan** for the reference **AN515-58** model (including its
+explicitly marked demo variant). Explicit labels provided by the
+kernel override that presentation choice, and unrecognized laptop
+models retain generic labels. This change is **presentation only**:
+`HardwareReader`, fan RPM polling, Linux driver, power/RGB control
+paths, fan animation timing, and firmware state are not modified.
+
+**Owner observations and safety scope:** They reported that selecting
+Power Saver, opening the confirmation and testing **Cancel** worked,
+and that a smaller-window Keyboard RGB page still scrolled to Reset,
+Apply preview and physical Apply/Restore controls. One supplied later
+screenshot additionally shows **Power Saver actually active** in the
+application and GNOME Quick Settings. The screenshot alone does not
+establish whether that switch was committed in a separate interaction;
+do not describe that frame as proof that Cancel preserved Balanced.
+No further physical keyboard test is requested for this label fix.
+
+**Still to verify visually:** New CPU/GPU captions and neutral mode
+labels in a real GTK preview on this Fedora reference laptop, and no
+regression to the dashboard gauges, Hardware Details, or live sensor data.
+
 ## Acceptance checks before merging
 
 - Screenshot inspection on **Fedora 45 + GTK4/Libadwaita** at a laptop-sized
