@@ -118,6 +118,44 @@ uninstall the separately managed native RGB helper or kernel module,
 touch `acer_wmi`, remove a legacy module, or change fan/EC behavior.
 Avoid overwriting a dirty experimental development checkout.
 
+## Release-candidate Fedora visual smoke test — November 11, 2026
+
+The owner launched the proposed `0.4.0-preview.2` release candidate on
+the reference **Acer Nitro AN515-58, Fedora 45**, and shared real GTK
+screenshots of **all three pages** on November 11, 2026. The Dashboard
+footer visibly reports `Nitro Control v0.4.0-preview.2`.
+
+**Observed in the release-candidate screenshots:**
+
+- **Dashboard:** CPU Fan **2,702 RPM**, GPU Fan **3,191 RPM**,
+  CPU package **61 °C**, NVIDIA GPU **48 °C**, actual rolling CPU/GPU
+  graphs, GNOME Balanced selected/active, Acer firmware and TuneD
+  both balanced. Control mode is honestly **Mode not reported**.
+- **Hardware Details:** Original metal/graphite panels render; optional
+  NVIDIA metrics, firmware/TuneD profiles, real CPU/GPU fan readouts,
+  and the temperature-sensor section are present. This screenshot
+  captured GPU utilization **55%**; the two fan readouts are from a
+  separate refresh and need not match the Dashboard's earlier RPM.
+- **Keyboard RGB:** WMI interface **Detected**, no permanently bound
+  driver, independent kernel-pinned native helper **present**; four
+  draft-only colored tiles, preset selector, zone editors and brightness
+  slider are visible. The full lower editor controls were tested during
+  the preceding redesign development, but **not newly evidenced** by
+  this release-candidate screenshot.
+
+**Result:** PASS for launching and visually rendering the release
+candidate, identifying the proposed version, and displaying live
+sensor data and all three page designs. These screenshots **do not
+verify** a new GUI install/rollback, the updated release candidate's
+preset/preview/reset callbacks, power-profile confirmation/Cancel,
+small-window scrolling, exact animation smoothness, or physical
+keyboard Apply/Restore. The existing physical WMI controller was **not
+reinitialized** merely for this cosmetic release review.
+
+CI for the release-candidate branch passed Python **3.11** and
+**3.13** tests. Publication still requires the remaining gates in
+[issue #6](https://github.com/tobiasGuta/Nitro-Control/issues/6).
+
 ## Field validation and outstanding gates
 
 The reference AN515-58 owner supplied screenshots of all three pages,
@@ -138,9 +176,10 @@ The **redesigned UI was not used to reinitialize the physically working
 keyboard**, because that would unnecessarily issue a firmware operation.
 The privileged native RGB backend and its safety gates have not changed.
 Post-cleanup reboot/suspend-resume persistence was previously verified,
-but **not a release-candidate-specific regression run**. A release-specific
-Fedora smoke test, current CI and final install/rollback verification are
-required before publication.
+but **not a release-candidate-specific regression run**. The release
+candidate's **three-tab visual/live telemetry smoke test** and CI are
+now complete; remaining interaction, installation/rollback and provenance
+verification are required before publication.
 
 Source CI validates Python syntax, shell syntax and offline test suites
 on Python **3.11 and 3.13**. This is not a substitute for real-hardware
