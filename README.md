@@ -31,6 +31,20 @@ not a separately published release. See
 the GTK/Cairo UI requires Fedora `python3-cairo` in addition to the
 existing GTK4/Libadwaita prerequisites.
 
+## Next milestone: first dedicated NitroSense-inspired release
+
+The screenshot-validated redesign is now merged into `main`, but it has
+**not yet been published as a separately tagged release**. The next goal is
+a clearly versioned, documented **source-based GitHub Release** (working
+version `v0.4.0-preview.2`, not yet finalized). The release gates include
+Fedora dependencies (`python3-cairo`), fresh install/upgrade and rollback,
+automated CI, reference-hardware smoke tests, accurate feature boundaries,
+and native RGB's existing 100%-brightness/Polkit safety rules.
+
+Track status and the full checklist in
+**[Issue #6 — first dedicated redesigned Nitro-Control release](https://github.com/tobiasGuta/Nitro-Control/issues/6)**.
+No release tag or artifacts are published merely by merging the UI.
+
 ## v0.4.0-preview.1: native AN515-58 RGB while preserving stock Acer monitoring
 
 On November 6, 2026, the **existing isolated red-only PoC** physically restored
