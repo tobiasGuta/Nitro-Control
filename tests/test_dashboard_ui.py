@@ -82,6 +82,26 @@ class DashboardSafetyContracts(unittest.TestCase):
         self.assertIn("fans.set_hexpand(True)", source)
         self.assertIn("self.power_panel.set_size_request(268, -1)", source)
 
+    def test_dashboard_uses_spare_window_height_without_fake_data(self):
+        source = (ROOT / "nitro_control" / "ui.py").read_text()
+        visuals = (ROOT / "nitro_control" / "dashboard_visuals.py").read_text()
+        dashboard = source.split('if key == "dashboard":', 1)[1].split("            else:", 1)[0]
+        self.assertIn("inner.set_vexpand(True)", dashboard)
+        self.assertIn("inner.set_valign(Gtk.Align.FILL)", dashboard)
+        self.assertIn("lower.set_valign(Gtk.Align.FILL)", source)
+        self.assertIn("lower.set_vexpand(True)", source)
+        self.assertIn('section("Power mode", self.power_panel, fill_height=True)', source)
+        self.assertIn('section("Live monitoring", monitors, fill_height=True)', source)
+        self.assertIn("self.cpu_graph.set_vexpand(True)", source)
+        self.assertIn("self.gpu_graph.set_vexpand(True)", source)
+        self.assertIn("if fill_height:", visuals)
+        self.assertIn("body.set_vexpand(True)", visuals)
+        # Decorative fan section remains fixed-height instead of stretching
+        # the rotor drawing to occupy the entire screen.
+        self.assertIn('section("Fan monitoring", fans, min_height=285)', source)
+        # No synthetic sensor series may be introduced to fill graph space.
+        self.assertIn("self._history.record(", source)
+
     def test_real_power_control_remains_select_apply_confirm(self):
         source = (ROOT / "nitro_control" / "ui.py").read_text()
         self.assertIn("self.power_combo.connect(\"notify::selected\", self._on_power_selection)", source)
