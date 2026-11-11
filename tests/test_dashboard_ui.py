@@ -58,6 +58,30 @@ class DashboardSafetyContracts(unittest.TestCase):
         self.assertIn("self._confirm_rgb_hardware", source)
         self.assertIn("self._confirm_power_change", source)
 
+    def test_power_column_does_not_force_wide_monitoring_pane(self):
+        source = (ROOT / "nitro_control" / "ui.py").read_text()
+        self.assertIn("self.power_panel.set_size_request(268, -1)", source)
+        self.assertIn('self.power_combo = Gtk.DropDown.new_from_strings(["Unavailable"])', source)
+        self.assertIn("monitors.set_hexpand(True)", source)
+        self.assertIn("monitors.set_size_request(470, -1)", source)
+        self.assertNotIn("power_group = Adw.PreferencesGroup(", source)
+
+    def test_real_power_control_remains_select_apply_confirm(self):
+        source = (ROOT / "nitro_control" / "ui.py").read_text()
+        self.assertIn("self.power_combo.connect(\"notify::selected\", self._on_power_selection)", source)
+        self.assertIn("self.power_apply.connect(\"clicked\", self._request_power_change)", source)
+        self.assertIn("self.power_status.set_text(", source)
+        self.assertIn("state.choices", source)
+        self.assertIn("self._power.apply(chosen)", source)
+
+    def test_graphs_and_turbine_are_decorative_only(self):
+        source = (ROOT / "nitro_control" / "dashboard_visuals.py").read_text()
+        self.assertIn("cairo.LinearGradient", source)
+        self.assertIn("blades = 28", source)
+        self.assertIn("max(11, int(max(right - left, 1) / 22))", source)
+        for unsafe in ("subprocess.run", "modprobe ", "pwm1", "insmod ", "pkexec"):
+            self.assertNotIn(unsafe, source)
+
     def test_no_fabricated_fan_control_buttons(self):
         source = (ROOT / "nitro_control" / "ui.py").read_text()
         self.assertIn("FIRMWARE FAN MANAGEMENT", source)
