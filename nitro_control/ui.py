@@ -55,6 +55,9 @@ headerbar { background: #15151a; border-bottom: 1px solid #3a2026; }
 .nitro-panel-hint { color: #b5b5bc; font-size: 12px; }
 .nitro-divider { background: #38383e; min-height: 1px; }
 .nitro-telemetry { color: #ef3b48; font-weight: 750; font-size: 21px; }
+.nitro-fan-mode { color: #f04450; font-size: 16px; font-weight: 750; }
+.nitro-fan-status { background: rgba(43,43,48,0.30); border-bottom: 1px solid #35353a; padding: 7px 9px; }
+.nitro-panel-value { color: #e9e9ea; font-size: 14px; font-weight: 650; }
 .nitro-readonly { color: #8e8e95; font-size: 11px; font-weight: 600; }
 .nitro-accent { color: #eb3546; font-size: 12px; font-weight: 700; }
 stack { background: #09090d; }
@@ -197,21 +200,29 @@ class NitroWindow(Adw.ApplicationWindow):
         # The reference's large upper fan section: two turbines and a passive
         # mode readout, not copied Max/Custom control buttons.
         fans = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
-        fan_info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        fan_info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         fan_info.set_size_request(230, -1)
-        fan_info.append(_label("FIRMWARE FAN MANAGEMENT", css="nitro-accent"))
-        fan_info.append(_label("RPM is monitored, never manually driven.", css="nitro-readonly"))
-        self.fan1_value = _label("—", css="nitro-telemetry")
+        fan_info.append(_label("FAN STATUS", css="nitro-accent"))
+        fan_info.append(_label("Firmware-managed · monitoring only", css="nitro-readonly"))
+        # Show the *reported* fan modes here. The large dial is the sole
+        # numerical RPM readout; repeating it at the left obscured the
+        # reference's control/status hierarchy.
+        self.fan1_value = _label("—", css="nitro-fan-mode")
         self.fan1_hint = _label("Waiting for Fan 1", css="metric-detail")
-        self.fan2_value = _label("—", css="nitro-telemetry")
+        self.fan2_value = _label("—", css="nitro-fan-mode")
         self.fan2_hint = _label("Waiting for Fan 2", css="metric-detail")
         for name, value, hint in (
-            ("FAN 1", self.fan1_value, self.fan1_hint),
-            ("FAN 2", self.fan2_value, self.fan2_hint),
+            ("FAN 1 · MODE", self.fan1_value, self.fan1_hint),
+            ("FAN 2 · MODE", self.fan2_value, self.fan2_hint),
         ):
-            fan_info.append(_label(name, css="metric-caption"))
-            fan_info.append(value)
-            fan_info.append(hint)
+            row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            row.add_css_class("nitro-fan-status")
+            row.append(_label(name, css="metric-caption"))
+            row.append(value)
+            hint.set_wrap(True)
+            row.append(hint)
+            fan_info.append(row)
+        fan_info.append(_label("Fan Max / Custom unavailable", css="nitro-readonly"))
         fans.append(fan_info)
         self.fan_dials = (FanDial("Fan 1"), FanDial("Fan 2"))
         for dial in self.fan_dials:
@@ -326,6 +337,18 @@ class NitroWindow(Adw.ApplicationWindow):
         self.power_panel.append(_label(
             "Fan RPM: read-only · Acer firmware profiles: read-only",
             css="nitro-readonly"))
+        # Real, read-only values fill the panel's previously blank lower area.
+        # Neither the firmware profile nor TuneD is changed by this UI.
+        self.power_panel.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        self.power_panel.append(_label("ACER FIRMWARE PROFILE", css="metric-caption"))
+        self.overview_firmware_value = _label("Checking…", css="nitro-panel-value")
+        self.overview_firmware_value.set_wrap(True)
+        self.power_panel.append(self.overview_firmware_value)
+        self.power_panel.append(Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL))
+        self.power_panel.append(_label("TUNED PROFILE", css="metric-caption"))
+        self.overview_tuned_value = _label("Checking…", css="nitro-panel-value")
+        self.overview_tuned_value.set_wrap(True)
+        self.power_panel.append(self.overview_tuned_value)
 
         cooling_group = Adw.PreferencesGroup(title="Cooling", description="Fan readings are passive. Firmware remains in control of the fans.")
         self.fan_rows = []
@@ -592,8 +615,8 @@ class NitroWindow(Adw.ApplicationWindow):
             hint = getattr(self, f"fan{index + 1}_hint")
             if index < len(data.fans):
                 fan = data.fans[index]
-                value.set_text(_number(fan.rpm, "RPM"))
-                hint.set_text(fan.control_mode + " · firmware-managed")
+                value.set_text(fan.control_mode)
+                hint.set_text(f"{fan.name} · read-only status")
                 self.fan_dials[index].update(fan.name, fan.rpm, fan.control_mode)
             else:
                 value.set_text("Unavailable")
@@ -624,6 +647,8 @@ class NitroWindow(Adw.ApplicationWindow):
             for val in self.gpu_rows.values():
                 val.set_text("Unavailable")
 
+        self.overview_firmware_value.set_text(data.firmware_profile or "Unavailable")
+        self.overview_tuned_value.set_text(data.tuned_profile or "Unavailable")
         self.profile_rows["firmware"].set_text(data.firmware_profile or "Unavailable")
         choices = "  •  ".join(data.firmware_profile_choices) or "Unavailable"
         self.firmware_choices_row.set_subtitle(choices)
