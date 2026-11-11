@@ -520,6 +520,25 @@ are installed by this procedure. Track observations in
 [issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3);
 absence of a recurrence on one boot is encouraging, not proof of root cause.
 
+### First reboot after removing Linuwu: passed
+
+After retiring the old Linuwu module, updating the per-user launcher, and
+rebooting normally, the reference AN515-58 owner confirmed **all four RGB zones
+illuminated after reboot and login**, normal **Fn+F9/Fn+F10** brightness
+operation, and fans working normally. The owner did **not** need manual
+Restore lighting for this boot.
+
+Read-only post-boot checks reported `native-wmi` available and `lsmod`
+showing **only stock `acer_wmi`** (neither Linuwu nor the native temporary
+PoC was resident). The fan check was observational; **no new numeric RPM
+measurements** were provided in this report.
+
+This is the **first successful post-cleanup reboot**. It supports continued
+evaluation of the competing-module hypothesis but is not proof that Linuwu
+caused the earlier zeroed firmware zone state. Monitor normal sleep/wake and
+future boots before concluding that the unexplained blackout is resolved;
+keep [issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3) open.
+
 ## Testing and release gates
 
 Offline validation:
