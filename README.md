@@ -6,6 +6,23 @@ Version 0.4.0-preview.1 (opt-in Acer WMI RGB, hardware-validated on a reference 
 
 Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. The GUI never runs as root or directly calls WMI. An optional, separately installed native-RGB development backend can execute a root-owned, one-shot WMI kernel module while keeping stock `acer_wmi` loaded. It never writes fan PWM.
 
+## NitroSense-inspired UI redesign (experimental branch)
+
+A **separate, unmerged** GTK4/Cairo GUI branch,
+`feat/nitrosense-inspired-dashboard`, explores the industrial dark/steel/red
+look of the owner's reference NitroSense screenshot. It includes turbine-style
+read-only RPM displays, charts drawn only from actual temperature/GPU
+utilization samples, and a panel-style power mode interface. The existing
+power-profile authorization and four-zone RGB Polkit/100%-brightness guards
+remain unchanged; **fan Max/Custom/CoolBoost controls are not supported and
+are not emulated**.
+
+For the design mapping, visual review checklist, safe standalone `--demo`
+launch, and Fedora `python3-cairo` prerequisite, see
+[the draft GUI design notes](docs/NITROSENSE-UI-REDESIGN.md). The branch
+should not replace the stable application until the reference-machine GUI
+and physical hardware regression checks pass.
+
 ## v0.4.0-preview.1: native AN515-58 RGB while preserving stock Acer monitoring
 
 On November 6, 2026, the **existing isolated red-only PoC** physically restored
