@@ -22,6 +22,7 @@ from .profiles import DISPLAY, PowerProfileController, PowerState
 from .rgb import LightingPlan, PRESETS, PreviewBackend
 from .rgb_client import RGBClient
 from .rgb_hardware import RGBHardware, RGBCapability
+from .tray_preferences import load_keep_in_tray, save_keep_in_tray, start_tray_process
 
 REFRESH_SECONDS = 4
 
@@ -176,8 +177,13 @@ class NitroWindow(Adw.ApplicationWindow):
         self._rendering_power = False
         self._busy = False
         self._closed = False
+        self._tray_setting_updating = False
+        self._keep_in_tray = load_keep_in_tray()
         self.connect("close-request", self._on_close)
         self._build()
+        # Never open live hardware monitoring in a --demo session.
+        if self._keep_in_tray and not self._demo:
+            self._start_tray()
         self._request_refresh()
         self._fan_last_tick_us = GLib.get_monotonic_time()
         # ~30 FPS is solely for decorative Cairo drawing; actual sensor RPM
@@ -195,6 +201,42 @@ class NitroWindow(Adw.ApplicationWindow):
         refresh.set_tooltip_text("Refresh real sensor readings")
         refresh.connect("clicked", lambda *_: self._request_refresh())
         header.pack_end(refresh)
+
+        # The tray preference is intentionally visible but off by default.
+        # The GTK3 indicator always runs in another Python process.
+        settings_button = Gtk.MenuButton()
+        settings_button.set_icon_name("preferences-system-symbolic")
+        settings_button.set_tooltip_text("Nitro Control preferences")
+        settings_popup = Gtk.Popover()
+        settings_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        settings_box.set_margin_top(12)
+        settings_box.set_margin_bottom(12)
+        settings_box.set_margin_start(12)
+        settings_box.set_margin_end(12)
+        settings_box.set_size_request(340, -1)
+        tray_group = Adw.PreferencesGroup(title="System tray")
+        self.tray_switch = Adw.SwitchRow(
+            title="Keep Nitro-Control in the system tray",
+            subtitle="Start the tray when opening the dashboard; it stays after closing",
+        )
+        self.tray_switch.set_active(self._keep_in_tray)
+        self.tray_switch.set_sensitive(not self._demo)
+        tray_group.add(self.tray_switch)
+        settings_box.append(tray_group)
+        self.tray_feedback = _label(
+            "Off by default. Requires GNOME AppIndicator support and "
+            "the optional GTK3 Ayatana package." if not self._keep_in_tray else
+            "Enabled. Quit tray from its menu to stop background monitoring.",
+            css="nitro-section-note",
+        )
+        self.tray_feedback.set_wrap(True)
+        settings_box.append(self.tray_feedback)
+        if self._demo:
+            self.tray_feedback.set_text("Demo mode never starts live tray monitoring.")
+        self.tray_switch.connect("notify::active", self._on_tray_setting_changed)
+        settings_popup.set_child(settings_box)
+        settings_button.set_popover(settings_popup)
+        header.pack_end(settings_button)
 
         # Keep the existing controls, with their original permission checks,
         # on separate pages. The reference-inspired landing page is monitoring.
@@ -556,7 +598,61 @@ class NitroWindow(Adw.ApplicationWindow):
         note.set_wrap(True)
         lighting_content.append(note)
 
+    def _on_tray_setting_changed(self, row, _param) -> None:
+        if self._tray_setting_updating or self._demo:
+            return
+        requested = row.get_active()
+        try:
+            save_keep_in_tray(requested)
+        except (OSError, ValueError) as exc:
+            self._tray_setting_updating = True
+            try:
+                row.set_active(self._keep_in_tray)
+            finally:
+                self._tray_setting_updating = False
+            self.tray_feedback.set_text(f"Could not save tray preference: {exc}")
+            return
+        self._keep_in_tray = requested
+        if requested:
+            self._start_tray()
+        else:
+            self.tray_feedback.set_text(
+                "Disabled for future dashboard launches. "
+                "To stop an already running indicator, use its Quit tray action."
+            )
+
+    def _start_tray(self) -> None:
+        if self._demo or self._closed:
+            return
+        try:
+            process = start_tray_process()
+        except OSError as exc:
+            self.tray_feedback.set_text(f"Could not launch system tray: {exc}")
+            return
+        self.tray_feedback.set_text("Starting indicator… Look for it in the GNOME top bar.")
+        GLib.timeout_add(800, self._check_tray_started, process)
+
+    def _check_tray_started(self, process) -> bool:
+        if self._closed:
+            return False
+        result = process.poll()
+        if result is None:
+            self.tray_feedback.set_text(
+                "Tray process running. Requires the GNOME AppIndicator extension; "
+                "Quit tray to stop monitoring."
+            )
+        elif result == 0:
+            self.tray_feedback.set_text("Tray already running; no duplicate icon started.")
+        else:
+            self.tray_feedback.set_text(
+                "Tray unavailable. Install Fedora libayatana-appindicator-gtk3 "
+                "and enable GNOME AppIndicator support. "
+                f"(Process exit: {result})"
+            )
+        return False
+
     def _on_close(self, *_args) -> bool:
+        # Do not terminate the opt-in, separate GTK3 tray process.
         self._closed = True
         return False
 
