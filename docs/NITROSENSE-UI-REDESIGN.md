@@ -164,6 +164,32 @@ fix, not a new sensor or power feature; it changes neither fan/WMI access
 nor the independent RPM-based turbine animation. Horizontal behavior
 on especially narrow windows should also be checked separately.
 
+## Maximized-height refinement — fourth live Fedora screenshot
+
+After the maximized-width fix, the owner supplied another live-sensor
+screenshot showing both fan gauges and temperature graphs use the full
+horizontal viewport. One smaller issue remained: **a strip of unused
+background below the dashboard panels and footer** when maximized.
+
+The dashboard page now allows its vertical content to expand, and the
+**lower Power Mode and Live Monitoring panels grow to occupy the
+remaining viewport height**. The monitoring section distributes the
+extra room to the two actual CPU/GPU history graphs. The top fan
+section and RPM dials remain at their compact reference proportions;
+the footer remains below the panels. Shorter windows keep the existing
+GTK vertical scroll behavior rather than forcing larger minimum heights.
+
+`Hardware details` and `Keyboard RGB` retain their separate readable
+form-width clamping and existing control/safety paths. No new hardware
+measurements, privileged controls, automatic RGB restore or direct fan
+control are introduced.
+
+**Pending verification:** This change is committed and covered by
+synthetic layout contract tests, but the owner should review both
+maximized and smaller-window GTK renders to confirm that the empty
+bottom strip shrinks without stretching charts awkwardly or clipping
+the footer.
+
 ## Layout mapped to the supplied reference screenshot
 
 | Screenshot visual element | GTK4 implementation | Data / permission boundary |
