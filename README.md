@@ -20,14 +20,20 @@ fan RPM, plus **Open Nitro Control**, **Refresh readings** and
 `libayatana-appindicator-gtk3`, running in its **own GTK3 process**,
 separate from the full GTK4 dashboard. Missing sensors stay unavailable.
 
-Start manually from a source checkout containing the feature with
-`/usr/bin/python3 -m nitro_control --tray`. The tray **does not
-start automatically**, install kernel drivers, change fan/RGB/power
-state, or update the GNOME extension. A guarded user-level autostart
-script exists but must be **explicitly enabled**, never by the regular
-installer. The already published `v0.4.0-preview.2` tag predates this
-feature. See [tray usage and Fedora validation](docs/TRAY-INDICATOR.md);
-GTK/Ayatana compatibility warnings are tracked in [#10](https://github.com/tobiasGuta/Nitro-Control/issues/10).
+For manual tray-only use, run
+`/usr/bin/python3 -m nitro_control --tray`. In the new
+**experimental dashboard integration branch**, a top-right gear menu
+setting **Keep Nitro-Control in the system tray** instead enables the
+indicator directly from the **normal GUI**: turn it on once, close the
+dashboard, and the read-only tray stays active. The setting persists
+per user and is **off by default**; no login autostart occurs.
+The indicator remains a separate GTK3 process, and the dashboard stays
+GTK4. An independent guarded login-autostart script remains an explicit
+extra opt-in only. Neither feature installs kernel drivers, changes
+RGB/fan/power state, or modifies the GNOME extension. The published
+`v0.4.0-preview.2` tag predates this enhancement.
+See [tray usage, new GUI setting, and Fedora checklist](docs/TRAY-INDICATOR.md).
+GTK/Ayatana warnings remain tracked in [#10](https://github.com/tobiasGuta/Nitro-Control/issues/10).
 
 ## NitroSense-inspired dashboard (v0.4.0-preview.2)
 
