@@ -288,14 +288,20 @@ class TelemetryGraph(Gtk.DrawingArea):
               9, (0.47, 0.47, 0.48))
 
 
-def section(title: str, content: Gtk.Widget, *, min_height: int = 0) -> Gtk.Widget:
-    """Shared clipped-panel composition; children remain normal GTK controls."""
+def section(title: str, content: Gtk.Widget, *,
+            min_height: int = 0, fill_height: bool = False) -> Gtk.Widget:
+    """Panel shell. Fill height only on panels designed to absorb spare room."""
     outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
     outer.add_css_class("nitro-section")
     if min_height:
         outer.set_size_request(-1, min_height)
+    if fill_height:
+        outer.set_vexpand(True)
     outer.append(Ribbon(title))
     body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+    if fill_height:
+        body.set_vexpand(True)
+        content.set_vexpand(True)
     body.set_margin_start(15)
     body.set_margin_end(15)
     body.set_margin_bottom(13)
