@@ -633,7 +633,8 @@ class NitroWindow(Adw.ApplicationWindow):
         GLib.timeout_add(800, self._check_tray_started, process)
 
     def _check_tray_started(self, process) -> bool:
-        if self._closed:
+        # Ignore late launch feedback when the user has already switched off.
+        if self._closed or not self._keep_in_tray:
             return False
         result = process.poll()
         if result is None:
