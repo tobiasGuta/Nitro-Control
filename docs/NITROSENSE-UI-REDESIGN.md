@@ -211,6 +211,45 @@ RPM-based animation is implemented but a still screenshot cannot confirm
 motion quality. Keep the PR as draft until Hardware details and Keyboard
 RGB page review and live workflow safety checks are complete.
 
+## Hardware Details and Keyboard RGB screenshot review
+
+The owner supplied **live Fedora screenshots of both non-dashboard tabs**
+after the maximized Dashboard layout was accepted. The original widgets
+and data worked, but these pages still appeared as **plain centered
+Libadwaita preference lists** without the industrial metal tabs, graphite
+texture and red accent hierarchy used on the Dashboard.
+
+### Implemented draft refinement
+
+- Wrap each of the existing **Graphics, Performance, Cooling, Temperature
+  sensors, RGB hardware and Four-zone studio** preferences groups in the
+  shared metal-ribbon `nitro-section` panel shell. Group descriptions are
+  placed inside each shell and all existing read-only measurements, color
+  pickers and signal handlers remain in their original row widgets.
+- Hardware Details and Keyboard RGB remain constrained to a **readable
+  width**, rather than enlarging small settings controls across an
+  ultra-wide monitor. Both continue to scroll as needed.
+- Add a new **four-color draft swatch strip** to Keyboard RGB. Its values
+  always follow the editor's validated in-memory palette. It is explicitly
+  labeled **NOT APPLIED TO KEYBOARD**, is not a physical keyboard state
+  probe, and never writes sysfs/WMI.
+- When the detected backend is `native-wmi` and editor brightness is
+  **not 100%**, show an explanation of why the real **Apply/Restore**
+  buttons are disabled. Preserve the exact existing physical color
+  confirmation dialog, Polkit helper, and native brightness gate.
+- The screenshot showed the gaming WMI GUID **detected** and its device
+  **without a permanently bound RGB driver**, while the independent native
+  one-shot helper was available. These are not contradictory: a bound
+  device driver is not needed to keep the temporary native WMI module
+  continuously resident. The UI explains this distinction.
+
+**Pending visual review:** The updated metal-panel settings and draft
+swatch bar must be rendered on the owner’s Fedora GTK desktop. A screenshot
+alone does not establish actual hardware write behavior; physical Apply
+must remain separately verified under explicit authorization and at
+100% initialization brightness. The underlying hardware backend was not
+modified by this design pass.
+
 ## Layout mapped to the supplied reference screenshot
 
 | Screenshot visual element | GTK4 implementation | Data / permission boundary |
