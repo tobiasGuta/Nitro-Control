@@ -1,9 +1,11 @@
 # Nitro-Control NitroSense-inspired GTK4 redesign — implementation and validation
 
-**Status:** Reviewed, source-ready GUI implementation developed on
-`feat/nitrosense-inspired-dashboard` for inclusion in `main`.
-These notes preserve the sequence of exploratory screenshot reviews and
-record the final verified behavior. The original NitroSense reference is
+**Status:** Merged to `main` via
+[PR #5](https://github.com/tobiasGuta/Nitro-Control/pull/5),
+squash commit `a8cac3ee92f829762332d3a00477be52d3802348`.
+This is a **source merge**, not a published binary, user-local installation,
+or new automatic hardware service. These notes preserve the sequence
+of screenshot reviews and final reference-laptop validation. The original NitroSense reference is
 a **visual direction**, not evidence of unsupported hardware functions.
 Nitro Control uses its own UI artwork and branding, not copied Acer
 logos or proprietary NitroSense assets. Native RGB hardware operations
