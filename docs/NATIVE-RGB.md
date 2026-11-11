@@ -345,9 +345,12 @@ a firmware RGB initialization/state issue over a simple Fn brightness-at-zero
 explanation. It does **not** prove which WMI method or prior update event
 caused the blackout.
 
-The owner has not separately reported the Fn keys' behavior **after** this
-latest recovery, nor fresh fan RPM telemetry following it. Do not infer
-those checks passed merely because the lighting returned.
+**Follow-up confirmation:** After the authorized 100%-initialization
+Restore, the owner confirms **Fn+F9 and Fn+F10 again adjust the keyboard
+brightness normally without changing the selected RGB colors**. In contrast,
+both keys were ineffective while the keyboard was dark. Fresh fan RPM
+measurements after this specific recovery were not reported; earlier
+checks had confirmed functioning Acer fan telemetry.
 
 This is confirmation that the **manual recovery workflow works on this
 existing kernel**, not proof of a particular firmware reset cause, repeatable
