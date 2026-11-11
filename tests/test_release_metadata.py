@@ -43,7 +43,7 @@ class ReleaseMetadataTests(unittest.TestCase):
     def test_release_notes_do_not_claim_unavailable_fan_controls(self):
         release_name = f"RELEASE-v{__version__}.md"
         notes = (ROOT / "docs" / release_name).read_text(encoding="utf-8")
-        self.assertIn("no manual fan PWM", notes.lower())
+        self.assertIn("no manual fan pwm", notes.lower())
         self.assertIn("exactly 100%", notes)
         self.assertIn("issue #6", notes)
 
