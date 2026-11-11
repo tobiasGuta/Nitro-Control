@@ -6,6 +6,25 @@ Version 0.4.0-preview.2 **(source preview)** • opt-in experimental Acer WMI RG
 
 Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. The GUI never runs as root or directly calls WMI. An optional, separately installed native-RGB development backend can execute a root-owned, one-shot WMI kernel module while keeping stock `acer_wmi` loaded. It never writes fan PWM.
 
+## Optional GNOME top-bar indicator (experimental branch)
+
+A separate, opt-in `feat/optional-tray-indicator` branch adds a
+**StatusNotifierItem/AppIndicator** compatible menu for GNOME's
+[AppIndicator and KStatusNotifierItem Support
+extension](https://extensions.gnome.org/extension/615/appindicator-support/).
+The small read-only menu shows available CPU/GPU temperature and
+actual fan RPM, and offers **Open Nitro Control**, **Refresh readings**
+and **Quit tray**. It uses the Fedora
+`libayatana-appindicator-gtk3` package in a **separate GTK3 process**,
+while the full dashboard remains GTK4. Missing sensors stay unavailable,
+and native RGB/fan/power hardware behavior is unchanged.
+
+The tray **does not auto-start**, install kernel drivers, or update the
+GNOME extension. An explicit, guarded per-user optional login script
+is available only after reviewing and installing tray-capable source.
+The published `v0.4.0-preview.2` tag is unaffected.
+See [tray design, Fedora preview and opt-in instructions](docs/TRAY-INDICATOR.md).
+
 ## NitroSense-inspired dashboard (v0.4.0-preview.2)
 
 Nitro Control now features an original **GTK4/Cairo** graphite-and-red
