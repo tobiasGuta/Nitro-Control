@@ -76,6 +76,36 @@ the dense NitroSense reference. The next refinement:
 validated these latest changes, nor the Keyboard RGB and Hardware
 details tabs. No changes to fan hardware, Polkit or RGB drivers were made.
 
+## Third Fedora screenshot — dashboard visual review
+
+The owner shared a third real Fedora GTK preview screenshot after the
+fan-status/sidebar and graphite scanline changes.
+
+- **Confirmed visually:** The reference-like main proportions now hold:
+  a broad top turbine section, a narrow lower-left power panel, and
+  wide stacked CPU/GPU monitoring graphs. The fan RPM numbers appear
+  once, inside their gauges. The left fan area shows **real firmware
+  mode readouts** instead of duplicated RPM; the power panel shows
+  **read-only Acer and TuneD profile** values.
+- **Remaining cosmetic differences:** This is a GTK-adapted original
+  interface, not a pixel-for-pixel recreation of Acer's desktop window.
+  Fan-blade shape, type treatments and panel margins differ.
+- **Refinement:** Removed mentions of unsupported NitroSense Max/Custom/
+  CoolBoost functions from the prominent dashboard labels; the actual
+  capability is summarized simply as **no manual fan speed control**.
+  In demo mode the power Apply button is deliberately disabled, and
+  its CSS now uses a muted disabled state instead of a prominent red
+  active-looking button.
+- **Pending checks:** Only the dashboard page is visually reviewed so
+  far; obtain **Hardware details** and **Keyboard RGB** screenshots,
+  then verify the control labels, responsive layout, four-zone RGB
+  safety guard and the real-system power-mode confirmation.
+
+The screenshots use `--demo`, so their displayed temperatures,
+profiles, fan speeds and flat graph traces are **sample values**, not
+measurements of this laptop's live condition. Do not interpret them
+as live hardware readings.
+
 ## Layout mapped to the supplied reference screenshot
 
 | Screenshot visual element | GTK4 implementation | Data / permission boundary |
