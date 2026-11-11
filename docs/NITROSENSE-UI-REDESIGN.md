@@ -357,6 +357,37 @@ To return to stable behavior, close the preview process and launch
 Installing from this branch with `bash scripts/install-fedora.sh` would
 replace that per-user UI copy, but **would not install drivers**.
 
+## Reference-laptop RGB draft workflow — owner verified
+
+Following the three-page Fedora screenshot review, the reference AN515-58
+owner ran the **non-destructive RGB preview workflow** from the live GUI
+and explicitly reported that **all three checks passed**:
+
+1. Choose another preset and click **Load preset**: all four editor zone
+   colors and the new draft-palette strip updated together.
+2. Click **Apply preview**: the simulated preview status updated but the
+   physical keyboard LEDs retained their existing colors.
+3. Click **Reset**: the local editor/draft state returned to its expected
+   reset state without changing physical lighting.
+
+**Outcome: PASS for all three preview controls, including an independent
+physical no-write observation.** This validates the revised GTK editor's
+local interactions without risking the firmware controller.
+
+**Not tested in this pass:** Native physical **Apply to keyboard** or
+**Restore lighting** at 100%, Polkit authorization, or a deliberate GNOME
+power-profile change. Those existing flows remain guarded and unchanged
+in this UI-only branch, and the native WMI 100%-brightness disable state
+was visually reviewed at 65% in the prior screenshots. Avoid unnecessary
+physical reinitialization merely to validate a cosmetic redesign.
+
+Recommended remaining non-destructive step before deciding whether to
+merge: inspect the real power-profile selector's enable/disable behavior
+and confirmation **Cancel** path (do not commit a profile change), then
+confirm the RGB editor remains scrollable in a smaller window. Continue
+to keep this PR in draft until remaining acceptance checks are explicitly
+reviewed.
+
 ## Acceptance checks before merging
 
 - Screenshot inspection on **Fedora 45 + GTK4/Libadwaita** at a laptop-sized
