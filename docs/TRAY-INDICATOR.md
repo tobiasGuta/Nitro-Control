@@ -1,9 +1,14 @@
-# Optional Nitro Control GNOME tray indicator (experimental branch)
+# Optional Nitro Control GNOME tray indicator
 
-**Status:** Experimental, opt-in feature branch
-`feat/optional-tray-indicator`. **Not part of the published
-`v0.4.0-preview.2` tag.** It needs a real Fedora/GNOME tray
-compatibility test before merging or shipping.
+**Status:** Merged into `main` via
+[PR #9](https://github.com/tobiasGuta/Nitro-Control/pull/9)
+(commit `efa45e92834918e311a9973636e81ba88cfa4317`),
+after successful real Fedora 45 / AN515-58 GNOME tray tests.
+The tray is **optional**, starts only on explicit `--tray`, and
+login autostart is **disabled by default**. The published
+`v0.4.0-preview.2` tag does **not** contain this post-release feature.
+The GTK/Ayatana warning investigation remains open in
+[issue #10](https://github.com/tobiasGuta/Nitro-Control/issues/10).
 
 ## What it does
 
@@ -217,5 +222,6 @@ or native RGB problems.
 - Check missing NVIDIA sensors, display logout/login and status-menu
   stability, and that the dashboard still launches independently.
 - A login autostart file is **strictly optional and OFF by default**.
-- The previously published `v0.4.0-preview.2` release, installed GUI
-  and native RGB experimental backend are **not affected by this branch**.
+- The published `v0.4.0-preview.2` release, existing installed GUI
+  and native RGB experimental backend are **unaffected by merging this
+  optional source feature**.
