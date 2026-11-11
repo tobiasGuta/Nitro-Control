@@ -73,6 +73,13 @@ class TrayPreferenceTests(unittest.TestCase):
         with self.assertRaises(OSError):
             save_keep_in_tray(True)
 
+    def test_special_fifo_file_fails_closed_without_blocking(self):
+        if not hasattr(os, "mkfifo"):
+            self.skipTest("POSIX FIFO required")
+        self.path.parent.mkdir()
+        os.mkfifo(self.path)
+        self.assertFalse(load_keep_in_tray())
+
     def test_refuses_group_writable_settings_directory(self):
         self.path.parent.mkdir()
         self.path.parent.chmod(0o770)
@@ -103,6 +110,7 @@ class TrayLaunchTests(unittest.TestCase):
         self.assertIn("load_keep_in_tray()", source)
         self.assertIn("if self._keep_in_tray and not self._demo:", source)
         self.assertIn("if self._demo or self._closed:", source)
+        self.assertIn("if self._closed or not self._keep_in_tray:", source)
         self.assertIn('GLib.timeout_add(800, self._check_tray_started, process)', source)
         self.assertIn("To stop an already running indicator, use its Quit tray action.", source)
         close = source.split("    def _on_close(", 1)[1].split("    def _on_timer(", 1)[0]
