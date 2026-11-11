@@ -168,7 +168,10 @@ def run_tray() -> int:
     if os.geteuid() == 0:
         print("The optional Nitro Control tray must not run as root.", file=sys.stderr)
         return 2
-    if not Gtk.init_check()[0]:
+    gtk_ready = Gtk.init_check()
+    # PyGObject releases differ in whether Gtk.init_check returns a bool
+    # or a (bool, remaining_argv) tuple.
+    if not (gtk_ready[0] if isinstance(gtk_ready, tuple) else gtk_ready):
         print("No graphical GTK session available for Nitro Control tray.", file=sys.stderr)
         return 2
     try:
