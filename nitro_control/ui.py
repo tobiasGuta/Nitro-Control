@@ -70,6 +70,11 @@ headerbar { background: #15151a; border-bottom: 1px solid #3a2026; }
 stack { background: #09090d; }
 stackswitcher button:checked { color: #ef4654; }
 button.suggested-action { background: #a6202d; color: #fff; }
+button.suggested-action:disabled {
+    background: #28282d;
+    color: #777780;
+    box-shadow: none;
+}
 """
 
 
@@ -229,7 +234,7 @@ class NitroWindow(Adw.ApplicationWindow):
             hint.set_wrap(True)
             row.append(hint)
             fan_info.append(row)
-        fan_info.append(_label("Fan Max / Custom unavailable", css="nitro-readonly"))
+        fan_info.append(_label("No manual fan speed control", css="nitro-readonly"))
         fans.append(fan_info)
         self.fan_dials = (FanDial("Fan 1"), FanDial("Fan 2"))
         for dial in self.fan_dials:
@@ -279,7 +284,7 @@ class NitroWindow(Adw.ApplicationWindow):
 
         footer = _label(
             "Real hardware readings only  •  Fans read-only  •  "
-            "No CoolBoost / Max / Custom PWM controls  •  Nitro Control v" + __version__,
+            "Power mode changes require confirmation  •  Nitro Control v" + __version__,
             css="info-note")
         footer.set_wrap(True)
         content.append(footer)
