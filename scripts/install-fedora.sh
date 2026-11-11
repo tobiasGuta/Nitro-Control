@@ -2,9 +2,9 @@
 # Per-user installation. Does not install a kernel driver or change hardware settings.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-if ! /usr/bin/python3 -c 'import gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1"); from gi.repository import Gtk, Adw' 2>/dev/null; then
+if ! /usr/bin/python3 -c 'import cairo, gi; gi.require_version("Gtk", "4.0"); gi.require_version("Adw", "1"); gi.require_foreign("cairo"); from gi.repository import Gtk, Adw' 2>/dev/null; then
   echo 'Missing GUI dependencies. First run:' >&2
-  echo '  sudo dnf install python3-gobject gtk4 libadwaita' >&2
+  echo '  sudo dnf install python3-gobject python3-cairo gtk4 libadwaita' >&2
   exit 1
 fi
 app_dir="$HOME/.local/share/nitro-control"
