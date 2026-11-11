@@ -7,6 +7,46 @@ exist on this Linux laptop. This is an **original Nitro-Control interface**,
 not a copied Acer application, and it uses no Acer logos or proprietary
 NitroSense images.
 
+## Fedora screenshot review — first draft vs reference
+
+The owner ran the standalone `--demo` preview on the actual Fedora 45
+desktop and supplied a **1649 × 928** screenshot. This is a real GTK render
+of the branch, not a product mockup. Findings:
+
+1. **Main mismatch:** The left Adwaita power-profile group expanded to more
+   than half the bottom row, squeezing the monitoring charts into about a
+   third of the width. The reference uses a *narrow left mode column and
+   broad right monitoring area*.
+2. The initial fan blades looked like a chunky gear; the reference uses
+   finer, curved turbine blades.
+3. The reference's steel-gray tabs have gradients and chamfered bevels.
+   The first draft used flatter gray shapes.
+4. The reference's CPU/GPU charts are wide and relatively short. The first
+   draft used extra temperature tiles and taller narrow charts.
+5. The preview's straight temperature traces were **correct for the constant
+   `--demo` snapshots**. We must not fabricate fluctuations merely to
+   imitate a graph in someone else's screenshot.
+
+**Refinements implemented after the screenshot:**
+
+- Replace the wide `Adw.PreferencesGroup` power selector with a compact
+  native `Gtk.DropDown`, the **same system-advertised GNOME profiles**,
+  explicit Apply confirmation and status, and a narrow mode column.
+- Expand the monitoring column, make temperature summary labels compact,
+  and shorten/widen the two real-sample graphs with finer red grids and
+  observed minimum/maximum temperatures.
+- Draw 28 narrower swept fan blades with original brushed-metal shading,
+  and add gradient/beveled angular section headers.
+- Do not add fan PWM, NitroSense Max/Custom/CoolBoost, fabricated fan
+  affiliation, simulated non-demo sensor readings, or unattended RGB writes.
+
+**Next review gate:** The owner must open this updated draft on the same
+Fedora desktop, provide an updated screenshot, and inspect all three pages
+before this design is considered visually complete or safe to merge.
+Comparison should prioritize **layout proportions and panel hierarchy**,
+then detailed typography and graphite texture. Live sensor and power/RGB
+tests are still separately required; `--demo` confirms only the design.
+
 ## Layout mapped to the supplied reference screenshot
 
 | Screenshot visual element | GTK4 implementation | Data / permission boundary |
