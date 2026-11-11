@@ -15,7 +15,7 @@ from . import APP_ID, __version__
 from .demo import demo_snapshot
 from .hardware import HardwareReader
 from .monitor_history import MonitorHistory
-from .dashboard_visuals import FanDial, TelemetryGraph, section
+from .dashboard_visuals import FanDial, RGBZoneStrip, TelemetryGraph, section
 from .models import Snapshot
 from .profiles import DISPLAY, PowerProfileController, PowerState
 from .rgb import LightingPlan, PRESETS, PreviewBackend
@@ -454,6 +454,11 @@ class NitroWindow(Adw.ApplicationWindow):
             "the native helper is loaded only for an authorized operation.",
             rgb_group))
 
+        # Purely graphical representation of the editor's *draft* colors.
+        # These tiles never suggest that firmware readback was performed.
+        self.rgb_strip = RGBZoneStrip()
+        lighting_content.append(section("Draft keyboard palette", self.rgb_strip))
+
         # The preview is in memory; physical Apply follows a separate authorized path.
         editor = Adw.PreferencesGroup(
             title="Four-zone lighting studio",
@@ -492,6 +497,14 @@ class NitroWindow(Adw.ApplicationWindow):
         self.rgb_brightness.connect("value-changed", self._on_rgb_edit)
         brightness_row.add_suffix(self.rgb_brightness)
         editor.add(brightness_row)
+        self.rgb_native_hint = Adw.ActionRow(
+            title="Why is physical Apply disabled?",
+            subtitle="Native WMI requires 100% editor brightness to initialize the controller; "
+                     "after applying, use Fn+F9/Fn+F10 to dim."
+        )
+        self.rgb_native_hint.set_subtitle_lines(0)
+        self.rgb_native_hint.set_visible(False)
+        editor.add(self.rgb_native_hint)
         preview_row = Adw.ActionRow(title="Simulated lighting", subtitle="No firmware, sysfs or WMI writes")
         apply_preview = Gtk.Button(label="Apply preview")
         apply_preview.add_css_class("suggested-action")
@@ -797,6 +810,7 @@ class NitroWindow(Adw.ApplicationWindow):
         if self._rgb_rendering:
             return
         plan = self._rgb_draft()
+        self.rgb_strip.update_zones(plan.zones)
         for label, color in zip(self.rgb_swatches, plan.zones):
             label.set_markup(f'<span foreground="{color}">●</span>  {color}')
         self.rgb_preview_status.set_subtitle(
@@ -827,6 +841,7 @@ class NitroWindow(Adw.ApplicationWindow):
         # The AN515-58 native backend currently permits only verified 100%
         # WMI initialization. The physical Fn keys still control dimming.
         supported_brightness = not native or self._rgb_draft().brightness == 100
+        self.rgb_native_hint.set_visible(native and not supported_brightness)
         self.rgb_apply_hardware.set_sensitive(ready and supported_brightness)
         self.rgb_restore_hardware.set_sensitive(ready and native and supported_brightness)
         if native:
