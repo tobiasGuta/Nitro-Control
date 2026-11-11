@@ -31,7 +31,8 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn(release_name, readme)
         notes = (ROOT / "docs" / release_name).read_text(encoding="utf-8")
         self.assertIn(f"v{__version__}", notes)
-        self.assertIn("NOT YET PUBLISHED", notes)
+        self.assertIn("GitHub Releases page", notes)
+        self.assertIn("source archives", notes)
 
     def test_gui_dependency_hint_includes_pycairo(self):
         launcher = (ROOT / "nitro_control" / "__main__.py").read_text()

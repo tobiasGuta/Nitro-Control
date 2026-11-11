@@ -2,11 +2,11 @@
 
 **A native GNOME dashboard for Acer Nitro laptops, initially tested against the AN515-58 interface.**
 
-Version 0.4.0-preview.2 **(release candidate; not published)** • opt-in experimental Acer WMI RGB, tested on a reference AN515-58 only • Python 3.11+ • MIT license
+Version 0.4.0-preview.2 **(source preview)** • opt-in experimental Acer WMI RGB, tested on a reference AN515-58 only • Python 3.11+ • MIT license
 
 Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. The GUI never runs as root or directly calls WMI. An optional, separately installed native-RGB development backend can execute a root-owned, one-shot WMI kernel module while keeping stock `acer_wmi` loaded. It never writes fan PWM.
 
-## NitroSense-inspired dashboard (v0.4.0-preview.2 candidate)
+## NitroSense-inspired dashboard (v0.4.0-preview.2)
 
 Nitro Control now features an original **GTK4/Cairo** graphite-and-red
 dashboard inspired by the owner's NitroSense screenshots. It includes
@@ -25,21 +25,22 @@ the UI does not install kernel drivers or enable boot-time RGB changes.
 
 The owner visually reviewed all three pages, ordinary/maximized
 layout, and confirmed the local-only RGB preset/preview/reset workflow
-and power-profile confirmation flow on Fedora 45. This **preview.2
-candidate is not yet a tagged/published GitHub Release**. Read
-[draft v0.4.0-preview.2 release notes](docs/RELEASE-v0.4.0-preview.2.md)
+and power-profile confirmation flow on Fedora 45. Find published tags and archives on the
+[GitHub Releases page](https://github.com/tobiasGuta/Nitro-Control/releases).
+Read [v0.4.0-preview.2 release notes](docs/RELEASE-v0.4.0-preview.2.md)
 for new features, Fedora dependency requirements (`python3-cairo`),
-GUI-only install/update and rollback, and the outstanding release gates.
+GUI-only installation/rollback and known limitations.
 See also [GUI design/validation notes](docs/NITROSENSE-UI-REDESIGN.md).
 
 ## Next milestone: first dedicated NitroSense-inspired release
 
-The screenshot-validated redesign is merged into `main` and the
-**`release/v0.4.0-preview.2` branch is the proposed tagged-source release
-candidate**. No GitHub Release or new release tag has been published.
-Release gates include Fedora GUI dependencies, fresh install/upgrade and
-rollback, automated CI, reference-hardware smoke tests, accurate feature
-boundaries, and the native RGB 100%-brightness/Polkit safety rules.
+The screenshot-validated redesign and preview.2 source are in `main`.
+Track publication and any further release verification in
+[issue #6](https://github.com/tobiasGuta/Nitro-Control/issues/6)
+and check [GitHub Releases](https://github.com/tobiasGuta/Nitro-Control/releases)
+for the exact version tag and source archives. Fedora GUI dependencies,
+fresh install/upgrade and rollback, automated CI, reference-hardware
+smoke tests and native RGB 100%-brightness/Polkit guard are documented.
 
 Track status and the full checklist in
 **[Issue #6 — first dedicated redesigned Nitro-Control release](https://github.com/tobiasGuta/Nitro-Control/issues/6)**.
