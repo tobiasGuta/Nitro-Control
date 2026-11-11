@@ -21,11 +21,11 @@ fan RPM, plus **Open Nitro Control**, **Refresh readings** and
 separate from the full GTK4 dashboard. Missing sensors stay unavailable.
 
 For manual tray-only use, run
-`/usr/bin/python3 -m nitro_control --tray`. In the new
-**experimental dashboard integration branch**, a top-right gear menu
-setting **Keep Nitro-Control in the system tray** instead enables the
-indicator directly from the **normal GUI**: turn it on once, close the
-dashboard, and the read-only tray stays active. The setting persists
+`/usr/bin/python3 -m nitro_control --tray`. The
+[merged dashboard setting](https://github.com/tobiasGuta/Nitro-Control/pull/11),
+**Keep Nitro-Control in the system tray**, enables the indicator
+directly from the normal GUI's top-right gear menu: turn it on once,
+close the dashboard, and the read-only tray stays active. The setting persists
 per user and is **off by default**; no login autostart occurs.
 The indicator remains a separate GTK3 process, and the dashboard stays
 GTK4. An independent guarded login-autostart script remains an explicit
