@@ -391,6 +391,59 @@ and modules-load configuration inspection first; the investigation and
 diagnostic commands are tracked in
 [issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3).
 
+### Linuwu autoload diagnosis — exact WMI module alias (November 11)
+
+The reference AN515-58 owner has now confirmed that the **installed old
+Linuwu Sense module advertises a WMI alias that matches this laptop**:
+
+```text
+modinfo -F alias linuwu_sense:
+wmi:676AA15E-6A47-4D9F-A2CC-1E6D18D14026
+
+/usr/lib/modules/7.2.15-300.fc45.x86_64/modules.alias:
+alias wmi:676AA15E-6A47-4D9F-A2CC-1E6D18D14026 linuwu_sense
+
+/sys/bus/wmi/devices/676AA15E-6A47-4D9F-A2CC-1E6D18D14026-0/modalias:
+wmi:676AA15E-6A47-4D9F-A2CC-1E6D18D14026
+```
+
+This is a **verified alias match**, providing a straightforward explanation
+for automatic legacy module initialization even when
+`nitro-control-rgb-driver.service` is disabled and inactive. The November
+10 boot journal separately confirms Linuwu **actually initialized**. This
+does not yet prove whether udev, an initramfs hook, or another actor initiated
+the load, or whether this module caused the RGB zones to become zeroed. The
+GUID above is not the distinct Acer gaming WMI RGB GUID.
+
+The attempted `lsinitrd` inspection produced `Permission denied` on the
+`/boot` initramfs; it must be retried with `sudo`. The subsequent archive
+warnings are not evidence of corrupt initramfs files.
+
+Read-only confirmation:
+
+```bash
+modprobe -R 'wmi:676AA15E-6A47-4D9F-A2CC-1E6D18D14026'
+sudo lsinitrd -k "$(uname -r)" | grep -i linuwu_sense || true
+lsmod | grep -E '^(acer_wmi|linuwu_sense|nitro_rgb_enable_poc)' || true
+~/.local/bin/nitro-control --rgb-probe
+```
+
+**Suggested cleanup after confirming the above:** If Linuwu is no longer
+needed, the project has a separate, guarded
+`scripts/uninstall-rgb-driver-fedora.sh` for the **legacy Linuwu driver
+only**. It refuses removal while Linuwu is loaded and removes the managed
+legacy service, controller, module and checksums for installed kernels. It
+does not remove the native `nitro_rgb_enable_poc.ko` or the Polkit RGB helper.
+The legacy module should be removed rather than relying solely on the
+disabled service to prevent future matching-alias autoloads. Refresh the
+module index using `sudo depmod -a` after module removal. Inspect whether
+the initramfs contains Linuwu before deciding if any initramfs maintenance
+is appropriate. **Never force-unload a running driver or blacklist stock
+`acer_wmi`.**
+
+See [issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3).
+Keep firmware zeroing after S3 suspend/resume as an open causal question.
+
 ## Testing and release gates
 
 Offline validation:
