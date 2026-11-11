@@ -110,6 +110,65 @@ Disabling auto-start does not terminate a tray already running;
 select **Quit tray** for that. Neither script installs/loads modules,
 modifies the user's GNOME extension or changes RGB/fan/power state.
 
+## First real Fedora GNOME test — November 11, 2026
+
+The owner installed Fedora 45's `libayatana-appindicator-gtk3` and
+related Ayatana dependencies, then ran the **unmerged branch** from
+`$HOME/Nitro-Control-tray-preview` at commit `2bb621c`. The owner
+provided a GNOME screenshot showing the **indicator icon in the top
+right**, with its actual menu visible:
+
+- **CPU temperature:** 81°C
+- **GPU temperature:** 48°C
+- **CPU fan:** 2,803 RPM
+- **GPU fan:** 3,157 RPM
+- Timestamp, **Open Nitro Control**, **Refresh readings**, and **Quit
+  tray** present in the menu
+
+They subsequently reported that **Open Nitro Control works** and
+**Quit tray works**: the icon disappeared and the foreground
+`python3 -m nitro_control --tray` command returned to the normal
+terminal shell prompt after approximately 1m16s. Returning the prompt
+is expected; the user explicitly ended the foreground tray process.
+
+**Confirmed passing:** GNOME AppIndicator integration, real read-only
+CPU/GPU telemetry, the open-dashboard action, the quit action, and
+clean completion of the foreground command. These were **live Fedora
+results**, not a screenshot-only demo.
+
+**Nonfatal runtime warnings in that initial test:**
+
+```text
+libayatana-appindicator-WARNING: libayatana-appindicator is deprecated.
+Please use libayatana-appindicator-glib in newly written code.
+
+Gtk-CRITICAL: gtk_widget_get_scale_factor:
+assertion 'GTK_IS_WIDGET (widget)' failed
+```
+
+The first warning comes from the installed Ayatana AppIndicator-gtk3
+library, **not from our native RGB driver**. Upstream has publicly
+discussed its GTK3 library deprecation and transitional support while
+the GTK-free GLib implementation matures. A current GNOME/StatusNotifier
+integration path must be verified before switching APIs, not guessed.
+See [upstream library discussion](https://mail-archive.com/debian-bugs-dist%40lists.debian.org/msg2123677.html)
+and [GLib-only implementation](https://github.com/AyatanaIndicators/libayatana-appindicator-glib).
+
+The GTK widget assertion was emitted around **Quit tray** in the
+reported terminal transcript, with no reported functional failure or
+crash; the exact caller and cause are **unknown**. Do not claim it is
+fixed, definitively in upstream GTK, or universally harmless. If
+repeatable on clean shutdown, collect one targeted GTK backtrace or
+minimal Ayatana reproducer before modifying shutdown handling. Do not
+silence GTK criticals globally.
+
+**Remaining acceptance tests:** Try **Refresh readings** and confirm
+the timestamp updates; invoke a second `--tray` process while one is
+already running to confirm the single-instance guard; recheck
+relaunch/quit stability. Optional login autostart remains off and is
+not required to merge. Verify the warnings' behavior on a fresh
+session. The stable published `v0.4.0-preview.2` remains untouched.
+
 ## Safety, limitations and review gates
 
 - The tray uses the existing **read-only** `HardwareReader.collect()`.
