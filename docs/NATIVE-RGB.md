@@ -319,9 +319,37 @@ build, kernel blacklist, boot service, startup hook, or GRUB modification.
 | “module digest mismatch” | Root-installed module versus digest | Reinstall from reviewed, rebuilt local source |
 | “firmware write failed” | Kernel logs, module still loaded? | Collect log; do not retry blindly |
 | Readback says success but LEDs dark | Actual keyboard, Fn brightness | Record results; do not misreport physical success |
+| RGB dark after Fedora updates, but `native-wmi` still available | `uname -r`, `lsmod`, `--rgb-probe` | Try a few Fn+F10 presses first; if still dark, use authorized **Restore lighting** at editor brightness **100%**. Do **not** rebuild a module already valid for the running kernel |
 | Apply/Restore disabled below 100% | Native WMI temporary brightness guard | Set editor to 100%, Apply, then use Fn keys for actual dimming |
 | Fn+F9 changes colors after a WMI apply | Issue #2: color/brightness interaction | Do not repeat 65%; compare read-only WMI states and use known-good 100% workflow |
 | `rmmod` failure | `lsmod` and kernel journal | Stop further tests; recover or reboot to stock driver |
+
+### November 10, 2026: successful recovery after Fedora updates
+
+The owner reported that keyboard RGB went dark after installing updates.
+Read-only diagnostics confirmed the same previously tested kernel
+(`7.2.15-300.fc45.x86_64`), stock `acer_wmi` loaded, a correctly located
+native PoC module and digest for that kernel, `--rgb-probe` returning
+`native-wmi` / `available: true`, and the power profile `low-power`.
+No Linuwu or native PoC module was resident. **No kernel mismatch was
+demonstrated**; `low-power` was observed but was not shown to cause the
+lighting issue.
+
+The user followed a controlled recovery procedure: try Fn+F10 to rule out
+hardware brightness being zero; open Nitro-Control and select the desired
+four colors at editor brightness **100%**; authorize **Restore lighting** if
+the LEDs remain dark; verify the physical keyboard and Fn brightness keys.
+The owner reported **successful recovery**, without rebuilding or reinstalling
+the module. Because the exact moment the lights came back was not separately
+reported, this does **not** isolate Fn+F10 versus the authorized Restore
+operation as the decisive action.
+
+This is confirmation that the **manual recovery workflow works on this
+existing kernel**, not proof of a particular firmware reset cause, repeatable
+long-term persistence after every update, or post-recovery fan RPM measurements.
+Do not add unattended firmware writes or boot services on this evidence.
+Track recurrence and investigation in
+[issue #3](https://github.com/tobiasGuta/Nitro-Control/issues/3).
 
 ## Testing and release gates
 
