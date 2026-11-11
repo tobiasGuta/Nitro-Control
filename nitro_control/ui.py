@@ -235,13 +235,22 @@ class NitroWindow(Adw.ApplicationWindow):
         monitors = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
         monitors.set_hexpand(True)
         monitors.set_size_request(470, -1)
-        cpu_card, self.cpu_value, self.cpu_hint = _metric_card(
-            "CPU package temperature", "computer-symbolic")
-        gpu_card, self.gpu_value, self.gpu_hint = _metric_card(
-            "NVIDIA GPU temperature", "video-display-symbolic")
-        metric_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        metric_row.append(cpu_card)
-        metric_row.append(gpu_card)
+        # The reference uses the graphs as the dominant elements, not
+        # oversized dashboard metric tiles. Keep readable values in a slim
+        # header strip; the full series remains in the two large charts.
+        metric_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=25)
+        for name, title in (("cpu", "CPU PACKAGE"), ("gpu", "NVIDIA GPU")):
+            metric = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+            metric.set_hexpand(True)
+            metric.append(_label(title, css="metric-caption"))
+            value = _label("—", css="nitro-telemetry")
+            hint = _label("Waiting for sensors", css="metric-detail")
+            hint.set_ellipsize(Pango.EllipsizeMode.END)
+            metric.append(value)
+            metric.append(hint)
+            metric_row.append(metric)
+            setattr(self, f"{name}_value", value)
+            setattr(self, f"{name}_hint", hint)
         monitors.append(metric_row)
         self.cpu_graph = TelemetryGraph("CPU · package temperature", "cpu_celsius")
         self.gpu_graph = TelemetryGraph(
