@@ -14,6 +14,7 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from . import APP_ID, __version__
 from .demo import demo_snapshot
 from .hardware import HardwareReader
+from .fan_presentation import fan_display_name, fan_mode_description
 from .monitor_history import MonitorHistory
 from .dashboard_visuals import FanDial, RGBZoneStrip, TelemetryGraph, section
 from .models import Snapshot
@@ -63,6 +64,7 @@ headerbar { background: #15151a; border-bottom: 1px solid #3a2026; }
 .nitro-divider { background: #38383e; min-height: 1px; }
 .nitro-telemetry { color: #ef3b48; font-weight: 750; font-size: 21px; }
 .nitro-fan-mode { color: #f04450; font-size: 16px; font-weight: 750; }
+.nitro-fan-mode.nitro-fan-muted { color: #a7a7ae; font-size: 14px; }
 .nitro-fan-status { background: rgba(43,43,48,0.30); border-bottom: 1px solid #35353a; padding: 7px 9px; }
 .nitro-panel-value { color: #e9e9ea; font-size: 14px; font-weight: 650; }
 .nitro-section-note { color: #b2b2b8; font-size: 12px; }
@@ -269,13 +271,16 @@ class NitroWindow(Adw.ApplicationWindow):
         self.fan1_hint = _label("Waiting for Fan 1", css="metric-detail")
         self.fan2_value = _label("—", css="nitro-fan-mode")
         self.fan2_hint = _label("Waiting for Fan 2", css="metric-detail")
+        self.fan_mode_titles = []
         for name, value, hint in (
             ("FAN 1 · MODE", self.fan1_value, self.fan1_hint),
             ("FAN 2 · MODE", self.fan2_value, self.fan2_hint),
         ):
             row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             row.add_css_class("nitro-fan-status")
-            row.append(_label(name, css="metric-caption"))
+            mode_title = _label(name, css="metric-caption")
+            self.fan_mode_titles.append(mode_title)
+            row.append(mode_title)
             row.append(value)
             hint.set_wrap(True)
             row.append(hint)
@@ -721,11 +726,19 @@ class NitroWindow(Adw.ApplicationWindow):
             hint = getattr(self, f"fan{index + 1}_hint")
             if index < len(data.fans):
                 fan = data.fans[index]
-                value.set_text(fan.control_mode)
-                hint.set_text(f"{fan.name} · read-only status")
-                self.fan_dials[index].update(fan.name, fan.rpm, fan.control_mode)
+                display_name = fan_display_name(data.model, fan.name)
+                self.fan_mode_titles[index].set_text(f"{display_name.upper()} · MODE")
+                value.set_text(fan_mode_description(fan.control_mode))
+                if fan.control_mode == "Unknown":
+                    value.add_css_class("nitro-fan-muted")
+                else:
+                    value.remove_css_class("nitro-fan-muted")
+                hint.set_text(f"{fan.name} · read-only sensor")
+                self.fan_dials[index].update(display_name, fan.rpm, fan.control_mode)
             else:
+                self.fan_mode_titles[index].set_text(f"FAN {index + 1} · MODE")
                 value.set_text("Unavailable")
+                value.add_css_class("nitro-fan-muted")
                 hint.set_text("No fan reading")
                 self.fan_dials[index].update(f"Fan {index + 1}", None, "Unknown")
 
@@ -760,7 +773,9 @@ class NitroWindow(Adw.ApplicationWindow):
         self.firmware_choices_row.set_subtitle(choices)
         self.profile_rows["tuned"].set_text(data.tuned_profile or "Unavailable")
         self._update_sensor_rows(self.fan_rows, [
-            (fan.name, fan.control_mode + " control", _number(fan.rpm, "RPM")) for fan in data.fans
+            (fan_display_name(data.model, fan.name),
+             fan_mode_description(fan.control_mode) + " · read-only",
+             _number(fan.rpm, "RPM")) for fan in data.fans
         ])
         self._update_sensor_rows(self.thermal_rows, [
             (sensor.name, sensor.source, _temp(sensor.celsius))
