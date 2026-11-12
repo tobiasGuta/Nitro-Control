@@ -148,6 +148,32 @@ fans. Neither an exposed sysfs attribute nor an earlier AN515-58
 mode/speed write until its GET failures, independent profile behavior,
 reliable Auto restoration and authorization are reviewed.
 
+## Passive kernel-log review — no fan-specific diagnostic (November 11, 2026)
+
+The owner's unprivileged `journalctl -k -b` output confirms stock
+`acer_wmi` initialized at 09:25 local time, then logged
+`Unknown function number - 9 - 0` at 10:15, 10:57, 20:41 and 21:22.
+The supplied filtered log excerpt contains no explicit fan-mode failure
+message.
+
+The exact `pr_warn("Unknown function number - %d - %d")` is the **default
+branch of `acer_wmi_notify()`**, the Acer **event-notification handler**,
+in the upstream Linux v7.2 source. It prints the event's `function`
+and `key_num`; function **9** is absent from the handled event IDs
+(1 hotkey, 4 backlight, 5 accelerometer/dock, 7 gaming turbo key,
+8 AC). This is **not** an error from fan-control method 9 or
+`WMID_gaming_get_fan_behavior()` (method **15**). The trigger for
+event 9 is unknown from these records and cannot be ascribed to
+the keyboard, fans or thermal profile.
+
+In the reviewed `acer-wmi.c`, a decoded fan-mode value outside 1–3
+can return `-ENXIO` **without emitting a log line**. Therefore the
+absence of a fan-specific kernel log does not resolve the two observed
+`pwm*_enable` ENXIO errors. Further work should focus on the runtime
+firmware GET response and Fedora source equivalence, not the event
+warning. No sysfs writes, module replacement, dynamic debug setting,
+driver unloading or reboot is warranted by the warning alone.
+
 ## Remaining research gates
 
 1. **Completed:** initial Fedora AN515-58 `--fan-probe` output and
