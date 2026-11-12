@@ -18,11 +18,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tray", action="store_true", help="start optional read-only system-tray indicator")
     parser.add_argument("--once", action="store_true", help="print a single JSON snapshot, without GTK")
     parser.add_argument("--rgb-probe", action="store_true", help="read-only RGB backend probe (JSON; no GTK)")
+    parser.add_argument("--fan-probe", action="store_true", help="read-only stock Acer fan/PWM inventory (JSON; no GTK)")
     parser.add_argument("--version", action="version", version=f"Nitro Control {__version__}")
     args = parser.parse_args(argv)
     if args.tray:
-        if args.demo or args.once or args.rgb_probe:
-            parser.error("--tray cannot be combined with --demo, --once or --rgb-probe")
+        if args.demo or args.once or args.rgb_probe or args.fan_probe:
+            parser.error("--tray cannot be combined with --demo, --once, --rgb-probe or --fan-probe")
         try:
             # GTK3 AppIndicator runs in this separate process. It must never
             # be imported into the GTK4/Libadwaita dashboard process.
@@ -36,6 +37,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Details: {exc}", file=sys.stderr)
             return 2
         return run_tray()
+    if args.fan_probe:
+        if args.demo or args.once or args.rgb_probe:
+            parser.error("--fan-probe cannot be combined with --demo, --once or --rgb-probe")
+        from .fan_probe import collect_fan_probe
+        print(json.dumps(collect_fan_probe(), indent=2))
+        return 0
     if args.rgb_probe:
         from .rgb_hardware import RGBHardware
         print(json.dumps(asdict(RGBHardware().probe()), indent=2))

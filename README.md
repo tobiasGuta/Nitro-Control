@@ -79,6 +79,14 @@ See also [GUI design/validation notes](docs/NITROSENSE-UI-REDESIGN.md).
 
 **[Issue #12 — Research independent CPU/GPU fan control on AN515-58](https://github.com/tobiasGuta/Nitro-Control/issues/12)**
 
+**Research progress:** The upstream Linux v7.2 `acer-wmi` source
+contains a model-specific AN515-58 PWM hwmon interface, separate from
+platform-profile operations. A **read-only, no-sudo** discovery command
+(`/usr/bin/python3 -m nitro_control --fan-probe`) is being reviewed on
+the [research branch](https://github.com/tobiasGuta/Nitro-Control/tree/research/an51558-stock-fan-probe).
+See the [technical findings and safety gates](docs/FAN-CONTROL-RESEARCH.md).
+No fan write support has been enabled or validated on the reference laptop.
+
 The next research target is to determine whether the reference Acer Nitro
 AN515-58 exposes fan behavior/speed requests independent of the Linux
 power profile, **without replacing or blacklisting the stock `acer_wmi`
