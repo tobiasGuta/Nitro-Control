@@ -174,6 +174,52 @@ firmware GET response and Fedora source equivalence, not the event
 warning. No sysfs writes, module replacement, dynamic debug setting,
 driver unloading or reboot is warranted by the warning alone.
 
+## Version-specific source comparison — Fedora's 7.2.15 base (November 11, 2026)
+
+[Fedora's published 7.2.15-300.fc45 update announcement](https://lwn.net/Articles/1105020/)
+identifies **Linux v7.2.15** as the kernel base. The owner has independently
+confirmed that the local `acer-wmi.ko.xz` belongs to the installed,
+matching `kernel-modules-7.2.15-300.fc45.x86_64` RPM; its
+`vermagic` equals the running `7.2.15-300.fc45.x86_64` kernel.
+
+The research compared the **actual upstream Linux stable tag v7.2.15**
+([stable `acer-wmi.c`](https://github.com/gregkh/linux/blob/v7.2.15/drivers/platform/x86/acer-wmi.c),
+reviewed Git blob `61ae622c93d949c48ee1fe0155be8c06a5d3a3d3`)
+against the upstream mainline **v7.2**
+([`acer-wmi.c`](https://github.com/torvalds/linux/blob/v7.2/drivers/platform/x86/acer-wmi.c),
+Git blob `e0eaaefb13d04c45a0b6f264d0278281a6119282`).
+
+**Identical source blocks in the two upstream revisions:**
+
+- `WMID_gaming_get_fan_behavior()` — WMI GET 15, mode decoding and
+  `-ENXIO` when the decoded mode is outside the accepted 1–3 range.
+- `WMID_gaming_get_gaming_fan_speed()` — WMI GET 17 and status handling.
+- `WMID_gaming_set_fan_behavior()` — WMI SET 14; reviewed only, **not executed**.
+- `acer_wmi_hwmon_read()` and `acer_wmi_hwmon_write()` — kernel
+  hwmon mappings for fan RPM/PWM and mode; inspected only.
+- `quirk_acer_nitro_an515_58` — upstream v7.2 and v7.2.15 both enable
+  `predator_v4` and `pwm` for the DMI model.
+
+Thus the relevant `ENXIO` logic **was not changed between upstream v7.2
+and v7.2.15**; an upstream stable fix in this window does not explain
+the owner-observed regression or readback behavior.
+
+**Verification gap:** The research has **not extracted the exact Fedora
+`kernel-7.2.15-300.fc45.src.rpm`** nor compared its downstream
+patches or the actual loaded `acer_wmi` machine code. An installed,
+matching Fedora RPM identifies provenance and kernel ABI, **not
+byte-for-byte equivalence with upstream**. Until the Fedora-specific
+source is inspected, the upstream invalid-mode branch is a **strong
+hypothesis**, not absolute proof of the failure site. Raw firmware WMI
+GET 15 data remains unobserved, so mode `0` is **possible but not
+confirmed**, and `pwm{1,2}=0` is not itself evidence of the mode.
+
+**Safe decision remains unchanged:** no writes to `pwm*` or
+`pwm*_enable`, no kernel/firmware instrumentation or replacement,
+no UI fan-speed controls. Further work can statically inspect
+Fedora's exact source package, then only separately reviewed
+hardware diagnostics if genuinely necessary.
+
 ## Remaining research gates
 
 1. **Completed:** initial Fedora AN515-58 `--fan-probe` output and
