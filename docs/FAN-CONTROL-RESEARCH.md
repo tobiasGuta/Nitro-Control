@@ -91,7 +91,8 @@ presence as verified physical control nor assumes that a returned
   for that channel; **do not** manually create them or load a competing driver.
 - `pwm_readback_status=partial_or_unreadable`: the interface is
   incomplete, or a firmware/permission read returned invalid or no data;
-  do not assume manual control.
+  do not assume manual control. `pwm_enable_read_errno` preserves a
+  numeric read error when available (e.g. **6** for the observed ENXIO).
 - `pwm_readback_status=readable`: both stock PWM attributes were
   exposed and returned valid formatted data; **still not permission
   to write** or confirmation that fan speed and power profiles are
@@ -120,11 +121,23 @@ privileged operations. The command completed and returned JSON:
 
 **Interpretation:** The live Fedora stock driver exposes PWM sysfs
 attribute paths, with genuine RPM telemetry, on the target machine.
-But the **mode GET** path has failed to provide valid numeric data on
-both channels; the present probe intentionally does not record
-read-error details, so `null` could mean I/O error, permission error,
-empty response or invalid mode encoding. The correct next action is
-**unprivileged read-only diagnostics** to capture those errors.
+The owner subsequently read both mode files directly **without sudo**:
+`pwm1_enable` and `pwm2_enable` each returned **OSError errno 6
+(`ENXIO`, No such device or address)**. This is **not a permissions
+error**. In the inspected upstream Linux v7.2 `acer-wmi.c`,
+`WMID_gaming_get_fan_behavior()` specifically returns `-ENXIO`
+when WMI method **15** succeeds but the decoded firmware mode is
+outside **1=Auto, 2=Turbo, 3=Custom**. The caller's later
+`switch (mode)` also has an `-ENXIO` default that should be
+unreachable if the getter's range check held.
+
+**Working hypothesis:** the firmware's GET method returns an
+out-of-range fan mode (possibly `0`) on both channels. The raw WMI
+response **has not** been collected, and the exact Fedora
+`7.2.15-300.fc45.x86_64` downstream driver may differ from upstream
+v7.2; do not state the numeric mode or cause as confirmed. The probe
+now records the per-channel `pwm_enable_read_errno` without exposing
+error paths or personally identifying data.
 
 The raw `pwm*=0` results do **not** mean zero fan RPM and do not
 verify fan-control writes. The two RPM values above confirm active
@@ -137,7 +150,9 @@ reliable Auto restoration and authorization are reviewed.
 
 ## Remaining research gates
 
-1. Capture and review the **actual Fedora AN515-58** `--fan-probe` output.
+1. **Completed:** initial Fedora AN515-58 `--fan-probe` output and
+   independent `pwm*_enable` errno capture. Both fan modes return ENXIO.
+   Read-only diagnostics do **not** establish valid control.
 2. Match running kernel package/driver source to the reviewed
    upstream v7.2 behavior; Fedora may carry patches.
 3. Determine whether both PWM channels and mode readback are
