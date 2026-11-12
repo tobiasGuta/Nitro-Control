@@ -1,6 +1,6 @@
 # AN515-58 independent fan-control research — Phase 1
 
-**Status (November 11, 2026): Source research and offline diagnostic
+**Status (November 12, 2026): Source research and offline diagnostic
 implementation only. No fan-control writes have been authorized or performed.**
 Track decisions and hardware confirmation in [issue #12](https://github.com/tobiasGuta/Nitro-Control/issues/12).
 
@@ -213,6 +213,8 @@ source is inspected, the upstream invalid-mode branch is a **strong
 hypothesis**, not absolute proof of the failure site. Raw firmware WMI
 GET 15 data remains unobserved, so mode `0` is **possible but not
 confirmed**, and `pwm{1,2}=0` is not itself evidence of the mode.
+The [November 12 binary check](#fedora-binary-verification-november-12-2026)
+resolved the driver-side cause of `ENXIO`.
 
 **Safe decision remains unchanged:** no writes to `pwm*` or
 `pwm*_enable`, no kernel/firmware instrumentation or replacement,
@@ -234,16 +236,32 @@ The official [Fedora Kernel ARK GitLab project](https://gitlab.com/cki-project/k
 has a corresponding **`kernel-7.2.15-0`** source tag dated November 1,
 2026, at short commit `0ccf256a` on its
 [tag listing](https://gitlab.com/cki-project/kernel-ark/-/tags).
-This tag identifies Fedora's published kernel source lineage, but
-the Fedora `300.fc45` build may include packaging configuration,
-patches or downstream revisions not proven equivalent to that tag.
+Fedora's [update announcement](https://lwn.net/Articles/1105020/) cites
+the same source version.
 
-**Important limitation:** The exact Fedora source RPM contents and
-GitLab-tagged `acer-wmi.c` have **not** been directly inspected here.
-Upstream stable v7.2.15 was inspected previously; Fedora's exact
-compiled implementation remains unverified. Do not promote the
-upstream `-ENXIO` branch from plausible diagnosis to proven runtime
-failure site without that comparison.
+### Fedora binary verification (November 12, 2026)
+
+The reference AN515-58 reported GNU build ID
+`0ed713fc680daefafb8a06c07f5af867649b1056` from the running `acer_wmi`
+module. The [matching Fedora debug file](https://debuginfod.fedoraproject.org/buildid/0ed713fc680daefafb8a06c07f5af867649b1056/debuginfo)
+identifies kernel `7.2.15-300.fc45.x86_64`. The build-specific source
+request timed out, so the packaged module was checked directly.
+
+- The [Fedora Kernel ARK driver](https://gitlab.com/cki-project/kernel-ark/-/blob/kernel-7.2.15-0/drivers/platform/x86/acer-wmi.c)
+  is byte-for-byte identical to the upstream v7.2.15 driver, Git blob
+  `61ae622c93d949c48ee1fe0155be8c06a5d3a3d3`.
+- The `acer-wmi.ko.xz` extracted from the [Fedora kernel-modules RPM](https://ftp.luis.uni-hannover.de/fedora/updates/45/Everything/x86_64/Packages/k/kernel-modules-7.2.15-300.fc45.x86_64.rpm)
+  has the same GNU build ID as the running module. Its compiled
+  `acer_wmi_hwmon_read` calls WMI GET 15, checks the operation and firmware
+  status, then extracts the requested fan's two-bit mode. The range check
+  at `0x1fe8`–`0x1fee` branches to `0x2122` and returns `-6` (`ENXIO`)
+  only for decoded mode `0`. A failed WMI call or nonzero firmware status
+  returns `-5` (`EIO`) on a separate branch.
+
+The observed `ENXIO` on both mode reads therefore identifies a zero in
+each selected mode field for those reads. The full firmware response,
+the meaning of mode zero, and mode readback after a fan request remain
+unverified.
 
 ### A second Linux Acer application documents mode-read ENXIO
 
@@ -275,8 +293,8 @@ approved hardware safety experiment.
 - Both mode readbacks are **`ENXIO`** on the reference AN515-58.
 - Both RPM readings remain genuine and nonzero, and stock `acer_wmi`
   continues to provide hardware telemetry.
-- The Fedora source lineage has been located, but exact Fedora
-  `acer-wmi` build-source equivalence is still **not demonstrated**.
+- Fedora's tagged driver source matches upstream v7.2.15 byte for byte.
+  The build-ID-matched Fedora binary confirms `ENXIO` for a zero mode field.
 - Other Acer models document this mode-read failure with otherwise
   useful interfaces; model-specific validation remains essential.
 - **No fan-speed writes, no fan-mode writes, no driver replacement,
@@ -287,8 +305,8 @@ approved hardware safety experiment.
 1. **Completed:** initial Fedora AN515-58 `--fan-probe` output and
    independent `pwm*_enable` errno capture. Both fan modes return ENXIO.
    Read-only diagnostics do **not** establish valid control.
-2. Match running kernel package/driver source to the reviewed
-   upstream v7.2 behavior; Fedora may carry patches.
+2. **Completed:** matched the running module to Fedora debuginfo and the
+   packaged binary, and confirmed the fan-mode error path in the binary.
 3. Determine whether both PWM channels and mode readback are
    available and stable without requiring a competing WMI driver.
 4. Review failure modes: a requested fan mode may survive userspace
@@ -297,9 +315,11 @@ approved hardware safety experiment.
    transaction or verified automatic restoration.
 5. Design an **explicit opt-in** and authorized rollback path, with
    a separate approval gate before *any* WMI/sysfs fan writes.
-6. Investigate profile/fan independence only under a later, reviewed
-   and owner-approved physical test; source-level separation is not
-   a sufficient validation.
+6. In a later, reviewed and owner-approved hardware test, validate Max
+   first. Record both fan RPMs, the desktop power mode, and the Acer
+   firmware profile before Max, during Max, and after verified Auto
+   restoration. Validate Custom separately by changing one fan's
+   requested speed at a time and observing both RPMs and both profiles.
 
 **Current decision: continue read-only investigation. Do not install
 Linuwu-Sense, blacklist/unload `acer_wmi`, modify kernel drivers,
