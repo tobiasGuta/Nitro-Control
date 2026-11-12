@@ -220,6 +220,68 @@ no UI fan-speed controls. Further work can statically inspect
 Fedora's exact source package, then only separately reviewed
 hardware diagnostics if genuinely necessary.
 
+## Fedora source provenance and independent ENXIO precedent (November 11, 2026)
+
+### Fedora package and downstream source status
+
+Fedora published `kernel-7.2.15-300.fc45.src.rpm`, identified by
+the matching [Fedora 45 x86_64 package metadata](https://www.rpmfind.net/linux/RPM/fedora/updates/45/x86_64/Packages/k/kernel-debuginfo-common-x86_64-7.2.15-300.fc45.x86_64.html).
+The source RPM is also listed in the
+[Fedora 45 source-package mirror](https://ftp.luis.uni-hannover.de/fedora/updates/testing/45/Everything/source/tree/Packages/k/),
+with its November 2, 2026 timestamp.
+
+The official [Fedora Kernel ARK GitLab project](https://gitlab.com/cki-project/kernel-ark/)
+has a corresponding **`kernel-7.2.15-0`** source tag dated November 1,
+2026, at short commit `0ccf256a` on its
+[tag listing](https://gitlab.com/cki-project/kernel-ark/-/tags).
+This tag identifies Fedora's published kernel source lineage, but
+the Fedora `300.fc45` build may include packaging configuration,
+patches or downstream revisions not proven equivalent to that tag.
+
+**Important limitation:** The exact Fedora source RPM contents and
+GitLab-tagged `acer-wmi.c` have **not** been directly inspected here.
+Upstream stable v7.2.15 was inspected previously; Fedora's exact
+compiled implementation remains unverified. Do not promote the
+upstream `-ENXIO` branch from plausible diagnosis to proven runtime
+failure site without that comparison.
+
+### A second Linux Acer application documents mode-read ENXIO
+
+[ASense](https://github.com/fladirm/asense) independently documents
+that its reference **Predator PHN16-72** may expose functional PWM/RPM
+interfaces while `pwm*_enable` initially returns **`ENXIO`**.
+Its [fan observation ADR](https://github.com/fladirm/asense/blob/main/docs/adr/0001-fan-observation-availability.md)
+states that an unreadable mode is represented as **unknown**, not
+automatically as 0/Auto. The Rust hardware implementation
+([source](https://github.com/fladirm/asense/blob/main/src/hardware.rs))
+treats specifically `ENXIO` from the mode getter as an unavailable
+observation, while requiring explicit mode readback verification
+after any mode write. Its README separately notes actual hardware
+validation is on PHN16-72 and lists AN515-58 capability based
+primarily on upstream Linux.
+
+**Relevance to our AN515-58:** Other Acer firmware/driver
+combinations have a documented initial mode-read limitation. That
+makes a firmware-reported *unknown/uninitialized* mode plausible
+here and cautions against treating `ENXIO` as proof the fan-control
+transport can never work. It does **not** prove BIOS V2.21 has the same
+behavior, that the raw response is 0, or that writes would be safe.
+Do not copy ASense's policy of permitting some mode writes before
+readback verification without a separately reviewed and explicitly
+approved hardware safety experiment.
+
+### Current technical disposition
+
+- Both mode readbacks are **`ENXIO`** on the reference AN515-58.
+- Both RPM readings remain genuine and nonzero, and stock `acer_wmi`
+  continues to provide hardware telemetry.
+- The Fedora source lineage has been located, but exact Fedora
+  `acer-wmi` build-source equivalence is still **not demonstrated**.
+- Other Acer models document this mode-read failure with otherwise
+  useful interfaces; model-specific validation remains essential.
+- **No fan-speed writes, no fan-mode writes, no driver replacement,
+  no startup daemon, and no changes to the RGB helper.**
+
 ## Remaining research gates
 
 1. **Completed:** initial Fedora AN515-58 `--fan-probe` output and
