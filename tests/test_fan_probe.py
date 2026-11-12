@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import redirect_stdout, redirect_stderr
+import errno
 import io
 import json
 from pathlib import Path
@@ -56,6 +57,7 @@ class FanProbeTests(unittest.TestCase):
         a, b = result["acer_hwmon_devices"][0]["channels"]
         self.assertEqual((a["fan_rpm"], a["pwm_255"], a["pwm_enable"]), (2307, 128, 2))
         self.assertEqual(a["upstream_acer_wmi_mode"], "automatic")
+        self.assertIsNone(a["pwm_enable_read_errno"])
         self.assertEqual((b["pwm_readback_status"], b["upstream_acer_wmi_mode"]),
                          ("readable", "custom"))
 
@@ -96,6 +98,31 @@ class FanProbeTests(unittest.TestCase):
         result = collect_fan_probe(self.root)
         self.assertTrue(result["linuwu_sense_loaded"])
         self.assertIsNone(result["acer_hwmon_devices"][0]["channels"][0]["upstream_acer_wmi_mode"])
+
+    def test_enxio_from_stock_fan_mode_is_reported_not_ignored(self):
+        d = "sys/class/hwmon/hwmon6"
+        fixture(self.root, d + "/name", "acer\\n")
+        fixture(self.root, d + "/fan1_input", "2238\\n")
+        fixture(self.root, d + "/pwm1", "0\\n")
+        fixture(self.root, d + "/pwm1_enable", "2\\n")
+        original_open = Path.open
+
+        def reject_mode(path, *args, **kwargs):
+            if path.name == "pwm1_enable":
+                raise OSError(errno.ENXIO, "No such device or address")
+            return original_open(path, *args, **kwargs)
+
+        with patch.object(Path, "open", reject_mode):
+            result = collect_fan_probe(self.root)
+
+        channel = result["acer_hwmon_devices"][0]["channels"][0]
+        self.assertEqual(channel["fan_rpm"], 2238)
+        self.assertEqual(channel["pwm_255"], 0)
+        self.assertTrue(channel["pwm_enable_present"])
+        self.assertIsNone(channel["pwm_enable"])
+        self.assertEqual(channel["pwm_enable_read_errno"], errno.ENXIO)
+        self.assertIsNone(channel["upstream_acer_wmi_mode"])
+        self.assertEqual(channel["pwm_readback_status"], "partial_or_unreadable")
 
     def test_unknown_mode_and_excess_channels_are_not_assumed(self):
         d = "sys/class/hwmon/hwmon1"
