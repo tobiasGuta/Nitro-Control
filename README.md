@@ -8,25 +8,17 @@ Nitro Control is a small Python + GTK4 + Libadwaita application using native Lin
 
 ## Screenshots
 
-<!--
-Add your own Nitro-Control screenshots here when you're ready.
-Suggested paths: docs/screenshots/dashboard.png,
-docs/screenshots/hardware-details.png, and docs/screenshots/keyboard-rgb.png.
-Upload the images to the repository, then uncomment each Markdown
-image line below by removing its surrounding HTML comment delimiters.
--->
-
 ### Dashboard
 
-<!-- ![Nitro Control dashboard](docs/screenshots/dashboard.png) -->
+![Nitro Control dashboard showing CPU/GPU fan speeds and live monitoring](docs/screenshots/dashboard.png)
 
 ### Hardware Details
 
-<!-- ![Nitro Control hardware details](docs/screenshots/hardware-details.png) -->
+![Nitro Control hardware details with GPU, firmware and fan readings](docs/screenshots/hardware-details.png)
 
 ### Keyboard RGB
 
-<!-- ![Nitro Control four-zone keyboard RGB editor](docs/screenshots/keyboard-rgb.png) -->
+![Nitro Control four-zone keyboard RGB editor and draft palette](docs/screenshots/keyboard-rgb.png)
 
 ## Optional GNOME top-bar indicator (merged in main)
 
