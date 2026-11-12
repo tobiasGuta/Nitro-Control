@@ -103,6 +103,38 @@ If both the stock and Linuwu module appear loaded, **stop research
 at inventory** and review driver ownership; do not unload anything
 as a diagnostic shortcut.
 
+## First actual Fedora 45 field report — read-only (November 11, 2026)
+
+The owner ran `--fan-probe` from the separate research worktree, with no
+privileged operations. The command completed and returned JSON:
+
+| Runtime fact | Observation |
+| --- | --- |
+| Model/BIOS | Nitro AN515-58 / V2.21 |
+| Kernel | `7.2.15-300.fc45.x86_64` |
+| Driver presence | Stock `acer_wmi` loaded, Linuwu-Sense absent |
+| Platform profile | `balanced` |
+| hwmon device | `acer` (`hwmon6` during this snapshot) |
+| Fan 1 | 2238 RPM; `pwm1` present/readback 0; `pwm1_enable` present but **unreadable/unparseable** |
+| Fan 2 | 2255 RPM; `pwm2` present/readback 0; `pwm2_enable` present but **unreadable/unparseable** |
+
+**Interpretation:** The live Fedora stock driver exposes PWM sysfs
+attribute paths, with genuine RPM telemetry, on the target machine.
+But the **mode GET** path has failed to provide valid numeric data on
+both channels; the present probe intentionally does not record
+read-error details, so `null` could mean I/O error, permission error,
+empty response or invalid mode encoding. The correct next action is
+**unprivileged read-only diagnostics** to capture those errors.
+
+The raw `pwm*=0` results do **not** mean zero fan RPM and do not
+verify fan-control writes. The two RPM values above confirm active
+fans. Neither an exposed sysfs attribute nor an earlier AN515-58
+`Tested-by` is sufficient evidence to enable writes on this BIOS.
+
+**Go/no-go:** remain at read-only Phase 1. Do not attempt a PWM
+mode/speed write until its GET failures, independent profile behavior,
+reliable Auto restoration and authorization are reviewed.
+
 ## Remaining research gates
 
 1. Capture and review the **actual Fedora AN515-58** `--fan-probe` output.
