@@ -75,19 +75,30 @@ for new features, Fedora dependency requirements (`python3-cairo`),
 GUI-only installation/rollback and known limitations.
 See also [GUI design/validation notes](docs/NITROSENSE-UI-REDESIGN.md).
 
-## Next milestone: first dedicated NitroSense-inspired release
+## Next milestone: independent fan-control research (AN515-58)
 
-The screenshot-validated redesign and preview.2 source are in `main`.
-Track publication and any further release verification in
-[issue #6](https://github.com/tobiasGuta/Nitro-Control/issues/6)
-and check [GitHub Releases](https://github.com/tobiasGuta/Nitro-Control/releases)
-for the exact version tag and source archives. Fedora GUI dependencies,
-fresh install/upgrade and rollback, automated CI, reference-hardware
-smoke tests and native RGB 100%-brightness/Polkit guard are documented.
+**[Issue #12 — Research independent CPU/GPU fan control on AN515-58](https://github.com/tobiasGuta/Nitro-Control/issues/12)**
 
-Track status and the full checklist in
-**[Issue #6 — first dedicated redesigned Nitro-Control release](https://github.com/tobiasGuta/Nitro-Control/issues/6)**.
-No release tag or artifacts are published merely by merging the UI.
+The next research target is to determine whether the reference Acer Nitro
+AN515-58 exposes fan behavior/speed requests independent of the Linux
+power profile, **without replacing or blacklisting the stock `acer_wmi`
+driver**. This is **read-only investigation first**, not a supported
+fan-control feature. There are **no manual fan speed sliders or PWM
+writes** in Nitro-Control.
+
+Another community project has published fan-control evidence for the
+*different* AN515-45 model; this is useful for source research but **does
+not validate any WMI fan-write methods on AN515-58**. Before any physical
+fan-control experiments, the project requires a reviewed, model-specific
+safety design, explicit owner approval, reliable automatic restoration
+and verification that power profiles and existing keyboard RGB behavior
+are not disrupted. If safe independence cannot be proven, the fans
+will remain read-only.
+
+The previous [NitroSense-inspired release milestone #6](https://github.com/tobiasGuta/Nitro-Control/issues/6)
+was completed with the published [v0.4.0-preview.2 prerelease](https://github.com/tobiasGuta/Nitro-Control/releases/tag/v0.4.0-preview.2).
+The new research issue neither updates that release nor changes any
+installed drivers or startup behavior.
 
 ## v0.4.0-preview.1: native AN515-58 RGB while preserving stock Acer monitoring
 
