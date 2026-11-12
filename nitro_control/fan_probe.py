@@ -35,6 +35,22 @@ def _nonnegative_integer(value: str | None, maximum: int) -> int | None:
     return number if 0 <= number <= maximum else None
 
 
+def _read_number_with_errno(path: Path, maximum: int) -> tuple[int | None, int | None]:
+    """Read a numeric hwmon attribute, preserving only its POSIX error number.
+
+    Error message/path details are deliberately not included in JSON output.
+    The numeric value remains unknown on any read failure.
+    """
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            raw = handle.read(256).strip()
+    except OSError as exc:
+        return None, exc.errno
+    except ValueError:
+        return None, None
+    return _nonnegative_integer(raw, maximum), None
+
+
 def _channel_numbers(hwmon: Path) -> list[int]:
     numbers = set()
     try:
@@ -76,7 +92,7 @@ def collect_fan_probe(root: Path = Path("/")) -> dict:
             enable_present = enable_path.exists()
             rpm = _nonnegative_integer(_read_text(fan_path), 100_000) if fan_present else None
             pwm = _nonnegative_integer(_read_text(pwm_path), 255) if pwm_present else None
-            mode = _nonnegative_integer(_read_text(enable_path), 2) if enable_present else None
+            mode, mode_read_errno = _read_number_with_errno(enable_path, 2) if enable_present else (None, None)
 
             if not pwm_present and not enable_present:
                 status = "not_exposed"
@@ -99,6 +115,7 @@ def collect_fan_probe(root: Path = Path("/")) -> dict:
                 "pwm_255": pwm,
                 "pwm_enable_present": enable_present,
                 "pwm_enable": mode,
+                "pwm_enable_read_errno": mode_read_errno,
                 "upstream_acer_wmi_mode": mode_label,
                 "pwm_readback_status": status,
             })
