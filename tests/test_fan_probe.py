@@ -101,10 +101,10 @@ class FanProbeTests(unittest.TestCase):
 
     def test_enxio_from_stock_fan_mode_is_reported_not_ignored(self):
         d = "sys/class/hwmon/hwmon6"
-        fixture(self.root, d + "/name", "acer\\n")
-        fixture(self.root, d + "/fan1_input", "2238\\n")
-        fixture(self.root, d + "/pwm1", "0\\n")
-        fixture(self.root, d + "/pwm1_enable", "2\\n")
+        fixture(self.root, d + "/name", "acer\n")
+        fixture(self.root, d + "/fan1_input", "2238\n")
+        fixture(self.root, d + "/pwm1", "0\n")
+        fixture(self.root, d + "/pwm1_enable", "2\n")
         original_open = Path.open
 
         def reject_mode(path, *args, **kwargs):
