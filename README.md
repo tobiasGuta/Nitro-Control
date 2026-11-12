@@ -12,8 +12,8 @@ Nitro Control is a small Python + GTK4 + Libadwaita application using native Lin
 Add your own Nitro-Control screenshots here when you're ready.
 Suggested paths: docs/screenshots/dashboard.png,
 docs/screenshots/hardware-details.png, and docs/screenshots/keyboard-rgb.png.
-Upload the images to the repository, then remove the <!-- --> markers
-around each Markdown image line below.
+Upload the images to the repository, then uncomment each Markdown
+image line below by removing its surrounding HTML comment delimiters.
 -->
 
 ### Dashboard
