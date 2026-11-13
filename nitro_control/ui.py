@@ -9,7 +9,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gdk, GLib, Gtk, Pango
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk, Pango
 
 from . import APP_ID, __version__
 from .demo import demo_snapshot
@@ -18,10 +18,11 @@ from .fan_client import FanClient
 from .fan_control import MIN_PERCENT, MODES, FanPlan, find_fan_controls, read_fan_plan
 from .fan_presentation import fan_display_name, fan_mode_description
 from .monitor_history import MonitorHistory
-from .dashboard_visuals import FanDial, RGBZoneStrip, TelemetryGraph, section
+from .dashboard_visuals import FanDial, KeyboardPreview, TelemetryGraph, section
+from .keyboard_preview import COLOR_EFFECTS, EFFECTS
 from .models import Snapshot
 from .profiles import DISPLAY, PowerProfileController, PowerState
-from .rgb import LightingPlan, PRESETS, PreviewBackend
+from .rgb import LightingPlan, PRESETS
 from .rgb_client import RGBClient
 from .rgb_hardware import RGBHardware, RGBCapability
 from .tray_preferences import load_keep_in_tray, save_keep_in_tray, start_tray_process
@@ -81,6 +82,15 @@ headerbar { background: #15151a; border-bottom: 1px solid #3a2026; }
 .nitro-accent { color: #eb3546; font-size: 12px; font-weight: 700; }
 stack { background: #09090d; }
 stackswitcher button:checked { color: #ef4654; }
+.nitro-rgb-zones > box {
+    background-color: #18181e;
+    border: 1px solid #35353e;
+    border-radius: 6px;
+    padding: 7px 8px;
+}
+.nitro-rgb-zones switch:checked { background-color: #a6202d; }
+.nitro-rgb-modes { background: transparent; }
+.nitro-rgb-modes button { min-width: 80px; }
 button.suggested-action { background: #a6202d; color: #fff; }
 button.suggested-action:disabled {
     background: #28282d;
@@ -130,9 +140,10 @@ def _panel_group(title: str, description: str,
     group.set_description("")
     group.add_css_class("nitro-panel-group")
     body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=11)
-    note = _label(description, css="nitro-section-note")
-    note.set_wrap(True)
-    body.append(note)
+    if description:
+        note = _label(description, css="nitro-section-note")
+        note.set_wrap(True)
+        body.append(note)
     body.append(group)
     return section(title, body)
 
@@ -172,7 +183,6 @@ class NitroWindow(Adw.ApplicationWindow):
         self._fan_revision = 0
         self._fan_feedback: str | None = None
         self._history = MonitorHistory()
-        self._rgb_preview = PreviewBackend()
         self._rgb_hardware = RGBHardware()
         self._rgb_client = RGBClient()
         self._rgb_status = RGBCapability("none", "Unavailable", False, "Not checked")
@@ -405,7 +415,7 @@ class NitroWindow(Adw.ApplicationWindow):
             css="hero-subtitle"))
         lighting_content.append(_label("KEYBOARD LIGHTING", css="hero-title"))
         lighting_content.append(_label(
-            "Four-zone preview is simulated · physical lighting requires explicit authorization",
+            "Preview updates as you edit. Apply to keyboard sends your Static colors.",
             css="hero-subtitle"))
 
         self.gpu_group = Adw.PreferencesGroup(title="Graphics", description="NVIDIA readings are optional; the dashboard remains usable without nvidia-smi.")
@@ -498,116 +508,161 @@ class NitroWindow(Adw.ApplicationWindow):
             "Temperature sensors", "Unknown Acer sensors remain unidentified; drive temperatures use reported labels.",
             thermal_group))
 
-        rgb_group = Adw.PreferencesGroup(title="Keyboard lighting", description="Physical Apply is available only when a compatible RGB driver and authorized helper are present.")
-        rgb_row, self.rgb_value = _readout_row("Acer RGB WMI interface")
-        self.rgb_row = rgb_row
-        rgb_group.add(rgb_row)
-        driver_row, self.driver_value = _readout_row("Bound RGB driver")
-        rgb_group.add(driver_row)
-        self.rgb_capability = Adw.ActionRow(title="Physical lighting", subtitle="Checking for a supported RGB control endpoint…")
-        self.rgb_capability.set_subtitle_lines(0)
-        rgb_group.add(self.rgb_capability)
-        lighting_content.append(_panel_group(
-            "RGB hardware status", "The gaming WMI device may have no permanently bound driver; "
-            "the native helper is loaded only for an authorized operation.",
-            rgb_group))
+        self._build_rgb(lighting_content)
 
-        # Purely graphical representation of the editor's *draft* colors.
-        # These tiles never suggest that firmware readback was performed.
-        self.rgb_strip = RGBZoneStrip()
-        lighting_content.append(section("Draft keyboard palette", self.rgb_strip))
+    def _build_rgb(self, content: Gtk.Box) -> None:
+        preview_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
+        self.rgb_modes = Gtk.Stack()
+        self.rgb_modes.set_vhomogeneous(False)
+        self.rgb_modes.set_hhomogeneous(False)
+        mode_switcher = Gtk.StackSwitcher()
+        mode_switcher.add_css_class("nitro-rgb-modes")
+        mode_switcher.set_stack(self.rgb_modes)
+        mode_switcher.set_hexpand(True)
+        mode_switcher.set_halign(Gtk.Align.START)
+        toolbar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        toolbar.append(mode_switcher)
+        self.rgb_reset = Gtk.Button(label="Reset", valign=Gtk.Align.CENTER)
+        self.rgb_reset.set_tooltip_text("Restore the default static palette")
+        self.rgb_reset.connect("clicked", self._reset_rgb_preview)
+        toolbar.append(self.rgb_reset)
+        preview_panel.append(toolbar)
+        self.rgb_keyboard = KeyboardPreview(self._choose_rgb_zone)
+        preview_panel.append(self.rgb_keyboard)
+        preview_panel.append(self.rgb_modes)
+        content.append(section("Keyboard preview", preview_panel))
 
-        # The preview is in memory; physical Apply follows a separate authorized path.
-        editor = Adw.PreferencesGroup(
-            title="Four-zone lighting studio",
-            description="Edit four colors and brightness. Apply preview is simulated; Apply to keyboard is a separate, authorized hardware operation.",
-        )
-        self.rgb_preset = Adw.ComboRow(title="Preset", subtitle="Load a starting palette")
-        self.rgb_preset.set_model(Gtk.StringList.new(list(PRESETS)))
-        editor.add(self.rgb_preset)
-        load = Gtk.Button(label="Load preset")
-        load.set_valign(Gtk.Align.CENTER)
-        load.connect("clicked", self._load_rgb_preset)
-        preset_action = Adw.ActionRow(title="Edit colors from preset")
-        preset_action.add_suffix(load)
-        editor.add(preset_action)
+        static = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
+        zones = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8, homogeneous=True)
+        zones.add_css_class("nitro-rgb-zones")
         self.rgb_colors = []
-        self.rgb_swatches = []
+        self.rgb_zone_switches = []
         for index in range(4):
-            row = Adw.ActionRow(title=f"Zone {index + 1}", subtitle="Choose a static color")
+            zone = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+            title = _label(f"Zone {index + 1}", css="metric-caption")
+            title.set_halign(Gtk.Align.CENTER)
+            zone.append(title)
+            actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+            actions.set_halign(Gtk.Align.CENTER)
             dialog = Gtk.ColorDialog.new()
+            dialog.set_title(f"Zone {index + 1} color")
             dialog.set_with_alpha(False)
             picker = Gtk.ColorDialogButton.new(dialog)
-            picker.set_valign(Gtk.Align.CENTER)
+            picker.set_tooltip_text(f"Choose Zone {index + 1} color")
             picker.connect("notify::rgba", self._on_rgb_edit)
-            swatch = Gtk.Label(xalign=1)
-            swatch.set_selectable(False)
-            row.add_suffix(swatch)
-            row.add_suffix(picker)
-            editor.add(row)
+            toggle = Gtk.Switch(active=True, valign=Gtk.Align.CENTER)
+            toggle.update_property([Gtk.AccessibleProperty.LABEL], [f"Zone {index + 1} lighting"])
+            toggle.set_tooltip_text(f"Toggle Zone {index + 1}")
+            toggle.connect("notify::active", self._on_rgb_edit)
+            actions.append(picker)
+            actions.append(toggle)
+            zone.append(actions)
+            zones.append(zone)
             self.rgb_colors.append(picker)
-            self.rgb_swatches.append(swatch)
-        brightness_row = Adw.ActionRow(title="Brightness", subtitle="0–100% for preview or physical Apply")
-        self.rgb_brightness = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
-        self.rgb_brightness.set_digits(0)
-        self.rgb_brightness.set_size_request(220, -1)
-        self.rgb_brightness.set_valign(Gtk.Align.CENTER)
+            self.rgb_zone_switches.append(toggle)
+        static.append(zones)
+
+        editor = Adw.PreferencesGroup(css_classes=["nitro-panel-group"])
+        self.rgb_preset = Adw.ComboRow(title="Preset")
+        self.rgb_preset.set_model(Gtk.StringList.new(list(PRESETS)))
+        load = Gtk.Button(label="Load preset", valign=Gtk.Align.CENTER)
+        load.connect("clicked", self._load_rgb_preset)
+        self.rgb_preset.add_suffix(load)
+        editor.add(self.rgb_preset)
+        brightness_row = Adw.ActionRow(title="Brightness")
+        self.rgb_brightness = self._rgb_scale(0, 100, 5, "Static brightness", "%")
         self.rgb_brightness.connect("value-changed", self._on_rgb_edit)
         brightness_row.add_suffix(self.rgb_brightness)
         editor.add(brightness_row)
+
         self.rgb_native_hint = Adw.ActionRow(
-            title="Why is physical Apply disabled?",
-            subtitle="Native WMI requires 100% editor brightness to initialize the controller; "
-                     "after applying, use Fn+F9/Fn+F10 to dim."
+            title="Native WMI brightness",
+            subtitle="Set brightness to 100% to apply or restore colors. "
+                     "Use Fn+F9/Fn+F10 to dim the physical keyboard."
         )
         self.rgb_native_hint.set_subtitle_lines(0)
         self.rgb_native_hint.set_visible(False)
         editor.add(self.rgb_native_hint)
-        preview_row = Adw.ActionRow(title="Simulated lighting", subtitle="No firmware, sysfs or WMI writes")
-        apply_preview = Gtk.Button(label="Apply preview")
-        apply_preview.add_css_class("suggested-action")
-        apply_preview.set_valign(Gtk.Align.CENTER)
-        apply_preview.connect("clicked", self._apply_rgb_preview)
-        reset_preview = Gtk.Button(label="Reset")
-        reset_preview.set_valign(Gtk.Align.CENTER)
-        reset_preview.connect("clicked", self._reset_rgb_preview)
-        preview_row.add_suffix(reset_preview)
-        preview_row.add_suffix(apply_preview)
-        editor.add(preview_row)
-        self.rgb_preview_status = Adw.ActionRow(title="Preview status", subtitle="Nothing sent to the keyboard")
-        self.rgb_preview_status.set_subtitle_lines(0)
-        editor.add(self.rgb_preview_status)
-        physical_row = Adw.ActionRow(
-            title="Physical keyboard", subtitle="Optional root-owned helper; changes require separate confirmation and authentication"
-        )
-        self.rgb_physical_row = physical_row
-        self.rgb_apply_hardware = Gtk.Button(label="Apply to keyboard")
-        self.rgb_apply_hardware.set_valign(Gtk.Align.CENTER)
-        self.rgb_apply_hardware.set_sensitive(False)
+        self.rgb_physical_row = Adw.ActionRow(title="Physical keyboard")
+        self.rgb_apply_hardware = Gtk.Button(label="Apply to keyboard", valign=Gtk.Align.CENTER)
+        self.rgb_apply_hardware.add_css_class("suggested-action")
         self.rgb_apply_hardware.connect("clicked", self._request_rgb_hardware)
-        self.rgb_restore_hardware = Gtk.Button(label="Restore lighting")
+        self.rgb_restore_hardware = Gtk.Button(label="Restore lighting", valign=Gtk.Align.CENTER)
         self.rgb_restore_hardware.set_tooltip_text(
             "Reinitialize native Acer lighting using the selected four colors and brightness")
-        self.rgb_restore_hardware.set_valign(Gtk.Align.CENTER)
-        self.rgb_restore_hardware.set_sensitive(False)
         self.rgb_restore_hardware.connect("clicked", self._request_rgb_hardware)
-        physical_row.add_suffix(self.rgb_restore_hardware)
-        physical_row.add_suffix(self.rgb_apply_hardware)
-        editor.add(physical_row)
-        self.rgb_hardware_status = Adw.ActionRow(
-            title="Hardware status", subtitle="Checking for a supported RGB writer…"
-        )
+        self.rgb_physical_row.add_suffix(self.rgb_restore_hardware)
+        self.rgb_physical_row.add_suffix(self.rgb_apply_hardware)
+        editor.add(self.rgb_physical_row)
+        self.rgb_hardware_status = Adw.ActionRow(title="Hardware status", subtitle="Checking RGB support…")
         self.rgb_hardware_status.set_subtitle_lines(0)
         editor.add(self.rgb_hardware_status)
-        lighting_content.append(_panel_group(
-            "Four-zone RGB studio", "Preset and color edits are a local draft. "
-            "Apply preview never touches the keyboard; physical Apply/Restore requires permission.",
-            editor))
-        self._set_rgb_editor(self._rgb_preview.current())
+        static.append(editor)
+        self.rgb_modes.add_titled(static, "static", "Static")
 
-        note = _label("Preview is simulated; physical Apply uses a detected driver and administrator-authorized helper  •  Nitro Control v" + __version__, css="info-note")
-        note.set_wrap(True)
-        lighting_content.append(note)
+        dynamic = Adw.PreferencesGroup(
+            description="Effects are simulated on screen.",
+            css_classes=["nitro-panel-group"],
+        )
+        self.rgb_effect = Adw.ComboRow(title="Effect")
+        self.rgb_effect.set_model(Gtk.StringList.new(list(EFFECTS)))
+        self.rgb_effect.connect("notify::selected", self._sync_keyboard_preview)
+        dynamic.add(self.rgb_effect)
+
+        self.rgb_effect_color_row = Adw.ActionRow(title="Effect color")
+        dialog = Gtk.ColorDialog.new()
+        dialog.set_with_alpha(False)
+        self.rgb_effect_color = Gtk.ColorDialogButton.new(dialog)
+        self.rgb_effect_color.set_valign(Gtk.Align.CENTER)
+        color = Gdk.RGBA()
+        color.parse("#FF475D")
+        self.rgb_effect_color.set_rgba(color)
+        self.rgb_effect_color.connect("notify::rgba", self._sync_keyboard_preview)
+        self.rgb_effect_color_row.add_suffix(self.rgb_effect_color)
+        dynamic.add(self.rgb_effect_color_row)
+
+        speed_row = Adw.ActionRow(title="Speed")
+        self.rgb_effect_speed = self._rgb_scale(1, 9, 1, "Effect speed")
+        self.rgb_effect_speed.set_value(4)
+        self.rgb_effect_speed.connect("value-changed", self._sync_keyboard_preview)
+        speed_row.add_suffix(self.rgb_effect_speed)
+        dynamic.add(speed_row)
+
+        effect_brightness = Adw.ActionRow(title="Brightness")
+        self.rgb_effect_brightness = self._rgb_scale(0, 100, 5, "Effect brightness", "%")
+        self.rgb_effect_brightness.set_value(80)
+        self.rgb_effect_brightness.connect("value-changed", self._sync_keyboard_preview)
+        effect_brightness.add_suffix(self.rgb_effect_brightness)
+        dynamic.add(effect_brightness)
+
+        self.rgb_effect_playing = Adw.SwitchRow(title="Animate preview", active=True)
+        self.rgb_effect_playing.connect("notify::active", self._sync_keyboard_preview)
+        dynamic.add(self.rgb_effect_playing)
+        self.rgb_modes.add_titled(dynamic, "dynamic", "Dynamic")
+        self.rgb_modes.connect("notify::visible-child-name", self._on_rgb_mode_changed)
+
+        rgb_group = Adw.PreferencesGroup()
+        self.rgb_row, self.rgb_value = _readout_row("Acer RGB WMI interface")
+        rgb_group.add(self.rgb_row)
+        driver_row, self.driver_value = _readout_row("Bound RGB driver")
+        rgb_group.add(driver_row)
+        self.rgb_capability = Adw.ActionRow(title="Physical lighting", subtitle="Checking RGB support…")
+        self.rgb_capability.set_subtitle_lines(0)
+        rgb_group.add(self.rgb_capability)
+        content.append(_panel_group("RGB hardware status", "", rgb_group))
+
+        self._set_rgb_editor(PRESETS["Midnight"])
+
+    @staticmethod
+    def _rgb_scale(lower: int, upper: int, step: int, label: str, suffix: str = "") -> Gtk.Scale:
+        scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, lower, upper, step)
+        scale.set_digits(0)
+        scale.set_draw_value(True)
+        scale.set_size_request(190, -1)
+        scale.set_valign(Gtk.Align.CENTER)
+        scale.set_format_value_func(lambda _scale, value: f"{value:.0f}{suffix}")
+        scale.update_property([Gtk.AccessibleProperty.LABEL], [label])
+        return scale
 
     def _on_tray_setting_changed(self, row, _param) -> None:
         if self._tray_setting_updating or self._demo:
@@ -1071,35 +1126,65 @@ class NitroWindow(Adw.ApplicationWindow):
     def _set_rgb_editor(self, plan: LightingPlan) -> None:
         self._rgb_rendering = True
         try:
-            for picker, color in zip(self.rgb_colors, plan.zones):
+            for picker, toggle, color in zip(self.rgb_colors, self.rgb_zone_switches, plan.zones):
                 rgba = Gdk.RGBA()
                 if not rgba.parse(color):
                     raise ValueError("Invalid RGB plan")
                 picker.set_rgba(rgba)
+                toggle.set_active(True)
             self.rgb_brightness.set_value(plan.brightness)
         finally:
             self._rgb_rendering = False
         self._on_rgb_edit()
 
+    @staticmethod
+    def _rgb_hex(rgba: Gdk.RGBA) -> str:
+        channels = (rgba.red, rgba.green, rgba.blue)
+        return "#" + "".join(f"{round(max(0.0, min(1.0, channel)) * 255):02X}" for channel in channels)
+
     def _rgb_draft(self) -> LightingPlan:
-        values = []
-        for picker in self.rgb_colors:
-            rgba = picker.get_rgba()
-            components = [round(max(0.0, min(1.0, channel)) * 255)
-                          for channel in (rgba.red, rgba.green, rgba.blue)]
-            values.append("#" + "".join(f"{channel:02X}" for channel in components))
-        return LightingPlan(tuple(values), round(self.rgb_brightness.get_value()))
+        zones = tuple(self._rgb_hex(picker.get_rgba()) if toggle.get_active() else "#000000"
+                      for picker, toggle in zip(self.rgb_colors, self.rgb_zone_switches))
+        return LightingPlan(zones, round(self.rgb_brightness.get_value()))
+
+    def _choose_rgb_zone(self, index: int) -> None:
+        picker = self.rgb_colors[index]
+        dialog = picker.get_dialog()
+
+        def finish(source: Gtk.ColorDialog, result: Gio.AsyncResult) -> None:
+            try:
+                rgba = source.choose_rgba_finish(result)
+            except GLib.Error as exc:
+                if exc.matches(Gtk.dialog_error_quark(), Gtk.DialogError.FAILED):
+                    self.rgb_hardware_status.set_subtitle("Unable to open the color picker.")
+                return
+            if rgba is not None and not self._closed:
+                picker.set_rgba(rgba)
+
+        dialog.choose_rgba(self, picker.get_rgba(), None, finish)
+
+    def _sync_keyboard_preview(self, *_args) -> None:
+        if self.rgb_modes.get_visible_child_name() == "static":
+            self.rgb_keyboard.update_lighting(self._rgb_draft())
+            return
+
+        selected = self.rgb_effect.get_selected()
+        effect = EFFECTS[selected] if selected < len(EFFECTS) else EFFECTS[0]
+        self.rgb_effect_color_row.set_visible(effect in COLOR_EFFECTS)
+        preview = LightingPlan(self._rgb_draft().zones, round(self.rgb_effect_brightness.get_value()))
+        self.rgb_keyboard.update_lighting(
+            preview, effect=effect, color=self._rgb_hex(self.rgb_effect_color.get_rgba()),
+            speed=round(self.rgb_effect_speed.get_value()), playing=self.rgb_effect_playing.get_active())
+
+    def _on_rgb_mode_changed(self, *_args) -> None:
+        self.rgb_reset.set_visible(self.rgb_modes.get_visible_child_name() == "static")
+        self._sync_keyboard_preview()
+        self._sync_rgb_hardware_button()
 
     def _on_rgb_edit(self, *_args) -> None:
         if self._rgb_rendering:
             return
-        plan = self._rgb_draft()
-        self.rgb_strip.update_zones(plan.zones)
-        for label, color in zip(self.rgb_swatches, plan.zones):
-            label.set_markup(f'<span foreground="{color}">●</span>  {color}')
-        self.rgb_preview_status.set_subtitle(
-            f"Draft: {plan.brightness}% brightness • not applied to hardware"
-        )
+        self._sync_keyboard_preview()
         self._sync_rgb_hardware_button()
 
     def _load_rgb_preset(self, *_args) -> None:
@@ -1108,18 +1193,12 @@ class NitroWindow(Adw.ApplicationWindow):
         if 0 <= index < len(names):
             self._set_rgb_editor(PRESETS[names[index]])
 
-    def _apply_rgb_preview(self, *_args) -> None:
-        plan = self._rgb_preview.apply(self._rgb_draft())
-        self.rgb_preview_status.set_subtitle(
-            f"Simulated only: {plan.brightness}% • {', '.join(plan.zones)}. No keyboard writes."
-        )
-
     def _reset_rgb_preview(self, *_args) -> None:
-        self._set_rgb_editor(self._rgb_preview.reset())
-        self.rgb_preview_status.set_subtitle("Preview reset to Midnight; hardware unchanged")
+        self._set_rgb_editor(PRESETS["Midnight"])
 
     def _sync_rgb_hardware_button(self) -> None:
-        ready = (not self._demo and not self._rgb_hw_busy and
+        ready = (self.rgb_modes.get_visible_child_name() == "static"
+                 and not self._demo and not self._rgb_hw_busy and
                  self._rgb_status.available and self._rgb_client.ready())
         native = self._rgb_status.backend == "native-wmi"
         # The AN515-58 native backend currently permits only verified 100%
@@ -1136,7 +1215,8 @@ class NitroWindow(Adw.ApplicationWindow):
                 "Optional root-owned helper; changes require confirmation and authentication")
 
     def _request_rgb_hardware(self, *_args) -> None:
-        if self._demo or self._rgb_hw_busy or not self._rgb_status.available or not self._rgb_client.ready():
+        if (self.rgb_modes.get_visible_child_name() != "static" or self._demo or
+                self._rgb_hw_busy or not self._rgb_status.available or not self._rgb_client.ready()):
             return
         plan = self._rgb_draft()
         if self._rgb_status.backend == "native-wmi" and plan.brightness != 100:
@@ -1160,7 +1240,8 @@ class NitroWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def _confirm_rgb_hardware(self, _dialog, response: str, plan: LightingPlan) -> None:
-        if response != "apply" or self._closed or self._rgb_hw_busy:
+        if (response != "apply" or self._closed or self._rgb_hw_busy
+                or self.rgb_modes.get_visible_child_name() != "static"):
             return
         self._rgb_hw_busy = True
         self._sync_rgb_hardware_button()
