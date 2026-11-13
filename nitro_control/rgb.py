@@ -31,6 +31,24 @@ class LightingPlan:
         object.__setattr__(self, "zones", tuple(color.upper() for color in self.zones))
 
 
+PHYSICAL_EFFECT_MODES = {"Breathing": 1, "Neon": 2, "Wave": 3, "Shifting": 4, "Zoom": 5}
+
+
+@dataclass(frozen=True, slots=True)
+class EffectPlan:
+    effect: str
+    speed: int
+    color: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.effect, str) or self.effect not in PHYSICAL_EFFECT_MODES:
+            raise RGBValidationError("Unsupported physical lighting effect")
+        if type(self.speed) is not int or not 1 <= self.speed <= 9:
+            raise RGBValidationError("Effect speed must be an integer from 1 to 9")
+        if not isinstance(self.color, str) or not _HEX.fullmatch(self.color):
+            raise RGBValidationError("Effect color must be an #RRGGBB color")
+
+
 PRESETS: dict[str, LightingPlan] = {
     "Midnight": LightingPlan(("#5931B5", "#4536B6", "#245A9B", "#16869B"), 65),
     "Ocean": LightingPlan(("#174EA6", "#126BB7", "#1598B7", "#29B6A8"), 80),

@@ -9,7 +9,7 @@ import json
 import os
 import sys
 
-from .rgb import LightingPlan
+from .rgb import EffectPlan, LightingPlan
 from .rgb_hardware import RGBHardware, RGBHardwareError
 
 MAX_REQUEST_BYTES = 1024
@@ -25,12 +25,16 @@ def main() -> int:
         if len(data) > MAX_REQUEST_BYTES:
             raise RGBHardwareError("RGB request exceeds maximum length")
         payload = json.loads(data.decode("utf-8"))
-        if not isinstance(payload, dict) or set(payload) != {"zones", "brightness"}:
-            raise RGBHardwareError("Unexpected RGB request fields")
-        if not isinstance(payload["zones"], list) or len(payload["zones"]) != 4:
-            raise RGBHardwareError("Exactly four RGB zones are required")
-        plan = LightingPlan(tuple(payload["zones"]), payload["brightness"])
-        result = RGBHardware().apply(plan)
+        if isinstance(payload, dict) and set(payload) == {"effect", "speed", "color"}:
+            effect = EffectPlan(payload["effect"], payload["speed"], payload["color"])
+            result = RGBHardware().apply_effect(effect)
+        else:
+            if not isinstance(payload, dict) or set(payload) != {"zones", "brightness"}:
+                raise RGBHardwareError("Unexpected RGB request fields")
+            if not isinstance(payload["zones"], list) or len(payload["zones"]) != 4:
+                raise RGBHardwareError("Exactly four RGB zones are required")
+            plan = LightingPlan(tuple(payload["zones"]), payload["brightness"])
+            result = RGBHardware().apply(plan)
         print(json.dumps({"ok": True, "backend": result.backend, "verified_readback": result.verified_readback,
                           "detail": result.detail}))
         return 0

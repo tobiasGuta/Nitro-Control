@@ -12,7 +12,7 @@ from pathlib import Path
 import re
 
 from . import RGB_WMI_GUID
-from .rgb import LightingPlan
+from .rgb import EffectPlan, LightingPlan
 from .native_rgb import NativeRGB, NativeRGBError
 
 MODEL = "Nitro AN515-58"
@@ -177,6 +177,15 @@ class RGBHardware:
                 raise RGBHardwareError(str(exc)) from exc
             return RGBWriteResult("native-wmi", True, detail)
         raise RGBHardwareError("Unsupported RGB backend")
+
+    def apply_effect(self, plan: EffectPlan) -> RGBWriteResult:
+        if self.probe().backend != "native-wmi":
+            raise RGBHardwareError("Physical effects require the native Acer WMI backend")
+        try:
+            detail = NativeRGB(self.root).apply_effect(plan)
+        except NativeRGBError as exc:
+            raise RGBHardwareError(str(exc)) from exc
+        return RGBWriteResult("native-wmi", True, detail)
 
     def _apply_native(self, plan: LightingPlan) -> RGBWriteResult:
         zones = self._native()

@@ -12,6 +12,7 @@
 
 #include <linux/acpi.h>
 #include <linux/byteorder/generic.h>
+#include <linux/delay.h>
 #include <linux/dmi.h>
 #include <linux/init.h>
 #include <linux/hex.h>
@@ -74,6 +75,22 @@ static bool apply;
 module_param(apply, bool, 0400);
 MODULE_PARM_DESC(apply, "Apply validated per-zone static RGB; requires colors and brightness");
 
+static bool effect_test;
+module_param(effect_test, bool, 0400);
+MODULE_PARM_DESC(effect_test, "Try one effect for eight seconds and restore the Static palette");
+
+static unsigned int effect_mode;
+module_param(effect_mode, uint, 0400);
+MODULE_PARM_DESC(effect_mode, "Acer effect mode 1–5 (0 leaves effects disabled)");
+
+static unsigned int effect_speed = 4;
+module_param(effect_speed, uint, 0400);
+MODULE_PARM_DESC(effect_speed, "Effect speed 1–9");
+
+static unsigned int effect_rgb;
+module_param(effect_rgb, uint, 0400);
+MODULE_PARM_DESC(effect_rgb, "Effect color as 0xRRGGBB");
+
 static char colors[28] = "FF0000,FF0000,FF0000,FF0000";
 module_param_string(colors, colors, sizeof(colors), 0400);
 MODULE_PARM_DESC(colors, "Four six-digit RRGGBB hex values separated by commas");
@@ -128,44 +145,40 @@ static acpi_status nitro_wmi_call_u64(u32 method_id, u64 value, u64 *result)
 	return status;
 }
 
-static int nitro_probe_keyboard_state(void)
+static int nitro_read_keyboard_state(struct get_four_zoned_kb_output *state)
 {
-	static const u8 zone_ids[] = { 0x1, 0x2, 0x4, 0x8 };
-	struct acpi_buffer input;
-	struct acpi_buffer output = {
-		.length = ACPI_ALLOCATE_BUFFER,
-		.pointer = NULL,
-	};
-	struct get_four_zoned_kb_output state;
+	u64 in = 1;
+	struct acpi_buffer input = { sizeof(in), &in };
+	struct acpi_buffer output = { ACPI_ALLOCATE_BUFFER, NULL };
 	union acpi_object *obj;
 	acpi_status status;
-	u64 in = 1;
-	u64 raw;
-	int i;
 
-	input.length = sizeof(in);
-	input.pointer = &in;
 	status = wmi_evaluate_method(ACER_GAMING_WMI_GUID, 0,
 				     ACER_WMID_GET_GAMING_KB_BACKLIGHT_METHODID,
 				     &input, &output);
-	if (ACPI_FAILURE(status)) {
-		pr_err("nitro_rgb_enable_poc: method 21 state read failed: %s\n",
-		       acpi_format_exception(status));
-		return -EIO;
-	}
-
 	obj = output.pointer;
-	if (!obj || obj->type != ACPI_TYPE_BUFFER ||
-	    obj->buffer.length != sizeof(state)) {
-		pr_err("nitro_rgb_enable_poc: method 21 returned unexpected object (type=%u len=%u)\n",
-		       obj ? obj->type : 0,
-		       obj && obj->type == ACPI_TYPE_BUFFER ? obj->buffer.length : 0);
-		kfree(output.pointer);
+	if (ACPI_FAILURE(status) || !obj || obj->type != ACPI_TYPE_BUFFER ||
+	    obj->buffer.length != sizeof(*state)) {
+		kfree(obj);
+		pr_err("nitro_rgb_enable_poc: method 21 state read failed or returned an unexpected object\n");
 		return -EIO;
 	}
+	memcpy(state, obj->buffer.pointer, sizeof(*state));
+	kfree(obj);
+	return 0;
+}
 
-	memcpy(&state, obj->buffer.pointer, sizeof(state));
-	kfree(output.pointer);
+static int nitro_probe_keyboard_state(void)
+{
+	static const u8 zone_ids[] = { 0x1, 0x2, 0x4, 0x8 };
+	struct get_four_zoned_kb_output state;
+	acpi_status status;
+	u64 raw;
+	int i, ret;
+
+	ret = nitro_read_keyboard_state(&state);
+	if (ret)
+		return ret;
 
 	pr_info("nitro_rgb_enable_poc: keyboard state: return=%u mode=%u speed=%u brightness=%u direction=%u rgb=%u,%u,%u\n",
 		state.gm_return,
@@ -218,7 +231,7 @@ static int nitro_enable_zones(void)
 	return 0;
 }
 
-static int nitro_set_kb_backlight_static(u8 brightness)
+static int nitro_set_kb_backlight(u8 brightness, u8 mode, u8 speed, u32 rgb)
 {
 	u8 gm_input[16] = {
 		0,  /* static mode */
@@ -243,6 +256,17 @@ static int nitro_set_kb_backlight_static(u8 brightness)
 	u64 response = 0;
 
 	gm_input[2] = brightness;
+	if (mode) {
+		/* AN515-58 effect packet from Linuwu-Sense set_kb_status(). */
+		gm_input[0] = mode;
+		gm_input[1] = speed;
+		gm_input[3] = mode == 3 ? 8 : 0;
+		gm_input[4] = 2;
+		gm_input[5] = rgb >> 16;
+		gm_input[6] = rgb >> 8;
+		gm_input[7] = rgb;
+		gm_input[8] = 0;
+	}
 	status = wmi_evaluate_method(ACER_GAMING_WMI_GUID, 0,
 				     ACER_WMID_SET_GAMING_KB_BACKLIGHT_METHODID,
 				     &input, &output);
@@ -271,7 +295,8 @@ static int nitro_set_kb_backlight_static(u8 brightness)
 		return -EIO;
 	}
 
-	pr_info("nitro_rgb_enable_poc: method 20 accepted static mode, brightness=%u\n", brightness);
+	pr_info("nitro_rgb_enable_poc: method 20 accepted mode=%u, brightness=%u\n",
+		mode, brightness);
 	return 0;
 }
 
@@ -284,7 +309,7 @@ static int nitro_backlight_only_test(void)
 	if (ret)
 		return ret;
 
-	ret = nitro_set_kb_backlight_static(25);
+	ret = nitro_set_kb_backlight(25, 0, 0, 0);
 	if (ret)
 		return ret;
 
@@ -386,7 +411,7 @@ static int nitro_full_static_red_test(void)
 	if (ret)
 		return ret;
 
-	ret = nitro_set_kb_backlight_static(100);
+	ret = nitro_set_kb_backlight(100, 0, 0, 0);
 	if (ret)
 		return ret;
 
@@ -446,11 +471,30 @@ static int nitro_verify_colors(const u8 zones[4][3])
 	return 0;
 }
 
-static int nitro_apply_custom(void)
+static int nitro_apply_static_palette(const u8 zones[4][3])
 {
 	static const u8 zone_ids[] = { 1, 2, 4, 8 };
+	int i, ret;
+
+	ret = nitro_enable_zones();
+	if (ret)
+		return ret;
+	ret = nitro_set_kb_backlight(100, 0, 0, 0);
+	if (ret)
+		return ret;
+	for (i = 0; i < 4; ++i) {
+		ret = nitro_set_static_zone_u64(zone_ids[i],
+						zones[i][0], zones[i][1], zones[i][2]);
+		if (ret)
+			return ret;
+	}
+	return nitro_verify_colors(zones);
+}
+
+static int nitro_apply_custom(void)
+{
 	u8 zones[4][3];
-	int ret, i;
+	int ret;
 
 	ret = nitro_parse_colors(zones);
 	if (ret) {
@@ -460,24 +504,71 @@ static int nitro_apply_custom(void)
 	ret = nitro_probe_keyboard_state();
 	if (ret)
 		return ret;
-	ret = nitro_enable_zones();
-	if (ret)
-		return ret;
-	ret = nitro_set_kb_backlight_static((u8)brightness);
-	if (ret)
-		return ret;
-	for (i = 0; i < 4; ++i) {
-		ret = nitro_set_static_zone_u64(zone_ids[i],
-						zones[i][0], zones[i][1], zones[i][2]);
-		if (ret)
-			return ret;
-	}
-	ret = nitro_verify_colors(zones);
+
+	ret = nitro_apply_static_palette(zones);
 	if (ret)
 		return ret;
 	pr_info("nitro_rgb_enable_poc: custom RGB apply accepted at brightness=%u; visually inspect keyboard\n",
 		brightness);
 	return 0;
+}
+
+static int nitro_apply_effect(void)
+{
+	static const u8 zone_ids[] = { 1, 2, 4, 8 };
+	struct get_four_zoned_kb_output state;
+	u8 zones[4][3];
+	u64 raw;
+	u32 rgb;
+	int i, ret, restore;
+
+	ret = nitro_read_keyboard_state(&state);
+	if (ret)
+		return ret;
+	if (state.gm_return || state.gm_output[0] > 5 ||
+	    state.gm_output[2] != 100) {
+		pr_err("nitro_rgb_enable_poc: Effect requires readable keyboard state at WMI brightness 100 (status=%u mode=%u brightness=%u)\n",
+		       state.gm_return, state.gm_output[0], state.gm_output[2]);
+		return -EINVAL;
+	}
+
+	for (i = 0; i < ARRAY_SIZE(zone_ids); ++i) {
+		raw = 0;
+		if (ACPI_FAILURE(nitro_wmi_call_u64(ACER_WMID_GET_GAMING_RGB_KB_METHODID,
+						   zone_ids[i], &raw)) || (raw & 0xff))
+			return -EIO;
+		rgb = be32_to_cpu((__force __be32)(u32)raw);
+		zones[i][0] = rgb >> 16;
+		zones[i][1] = rgb >> 8;
+		zones[i][2] = rgb;
+	}
+
+	ret = nitro_set_kb_backlight(100, effect_mode, effect_speed, effect_rgb);
+	if (!ret) {
+		ret = nitro_read_keyboard_state(&state);
+		if (!ret && (state.gm_return || state.gm_output[0] != effect_mode ||
+		     state.gm_output[1] != effect_speed || state.gm_output[2] != 100))
+			ret = -EIO;
+		if (!ret && !effect_test)
+			return 0;
+		if (!ret) {
+			pr_info("nitro_rgb_enable_poc: firmware reported effect %u; observe keyboard for eight seconds\n", effect_mode);
+			msleep(8000);
+		}
+	}
+
+	restore = nitro_apply_static_palette(zones);
+	if (!restore) {
+		restore = nitro_read_keyboard_state(&state);
+		if (!restore && (state.gm_return || state.gm_output[0] || state.gm_output[2] != 100))
+			restore = -EIO;
+	}
+	if (restore) {
+		pr_err("nitro_rgb_enable_poc: could not verify restoration of the Static palette\n");
+		return restore;
+	}
+	pr_info("nitro_rgb_enable_poc: original Static palette restored and verified\n");
+	return ret;
 }
 
 static int __init nitro_rgb_enable_poc_init(void)
@@ -494,12 +585,17 @@ static int __init nitro_rgb_enable_poc_init(void)
 		return -ENODEV;
 	}
 
-	if ((!!probe + !!enable + !!red_test + !!backlight_test + !!full_test + !!apply) > 1) {
+	if ((effect_test && !effect_mode) ||
+	    (effect_mode && (effect_mode > 5 || effect_speed < 1 || effect_speed > 9 ||
+			     effect_rgb > 0xffffff || brightness != 100)))
+		return -EINVAL;
+
+	if ((!!probe + !!enable + !!red_test + !!backlight_test + !!full_test + !!apply + !!effect_mode) > 1) {
 		pr_err("nitro_rgb_enable_poc: specify at most one test mode\n");
 		return -EINVAL;
 	}
 
-	if (!probe && !enable && !red_test && !backlight_test && !full_test && !apply) {
+	if (!probe && !enable && !red_test && !backlight_test && !full_test && !apply && !effect_mode) {
 		pr_info("nitro_rgb_enable_poc: dry run only; model and WMI GUID validated\n");
 		pr_info("nitro_rgb_enable_poc: use probe=1 for read-only firmware-state inspection\n");
 		return 0;
@@ -526,6 +622,9 @@ static int __init nitro_rgb_enable_poc_init(void)
 
 	if (apply)
 		return nitro_apply_custom();
+
+	if (effect_mode)
+		return nitro_apply_effect();
 
 	if (red_test)
 		return nitro_static_red_test();

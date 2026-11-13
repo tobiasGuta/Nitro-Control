@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from colorsys import hsv_to_rgb, rgb_to_hsv
+from colorsys import hsv_to_rgb
 import math
 
 EFFECTS = ("Breathing", "Wave", "Zoom", "Shifting", "Neon")
 COLOR_EFFECTS = frozenset({"Breathing", "Zoom", "Shifting"})
-SPATIAL_EFFECTS = frozenset({"Wave", "Zoom"})
+SPATIAL_EFFECTS = frozenset({"Wave", "Zoom", "Shifting"})
 
 # Key coordinates are in key-width units. The four lighting zones divide the
 # deck from left to right. Wide keys can cross a zone boundary.
@@ -75,9 +75,6 @@ def lighting_frame(zones: tuple[str, ...], brightness: int, *,
     match effect:
         case "Breathing":
             rgb = tuple(component * (0.20 + 0.80 * _pulse(phase)) for component in base)
-        case "Shifting":
-            hue, saturation, value = rgb_to_hsv(*base)
-            rgb = hsv_to_rgb((hue + _phase(speed, elapsed * 0.2)) % 1, saturation, value)
         case "Neon":
             rgb = hsv_to_rgb(phase, 0.93, 1)
         case _:
@@ -95,6 +92,13 @@ def lighting_gradient(effect: str, brightness: int, *, color: str,
         # Each hue moves left to right through the same continuous spectrum.
         return tuple(tuple(component * level for component in hsv_to_rgb((x - phase) % 1, 0.93, 1))
                      for x in stops)
+    if effect == "Shifting":
+        base = _rgb(color)
+        # Move a broad band of the chosen color across the deck. Varying
+        # intensity alone keeps the same hue at every position.
+        intensities = ((0.12 + 0.88 * _pulse(x - phase + 0.5) ** 3) * level for x in stops)
+        return tuple(tuple(component * intensity for component in base)
+                     for intensity in intensities)
     if effect == "Zoom":
         # Ease a symmetric beam out from the center and back. A soft edge
         # stays visible between keys as the beam crosses the deck.

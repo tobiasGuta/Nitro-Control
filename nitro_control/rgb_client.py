@@ -6,7 +6,7 @@ from pathlib import Path
 import shutil
 import subprocess
 
-from .rgb import LightingPlan
+from .rgb import EffectPlan, LightingPlan
 from .rgb_hardware import RGBHardwareError
 
 HELPER = Path("/usr/local/libexec/nitro-control-rgb-helper")
@@ -23,9 +23,17 @@ class RGBClient:
     def apply(self, plan: LightingPlan) -> str:
         if not isinstance(plan, LightingPlan):
             raise RGBHardwareError("A validated RGB plan is required")
+        return self._send({"zones": list(plan.zones), "brightness": plan.brightness})
+
+    def apply_effect(self, plan: EffectPlan) -> str:
+        if not isinstance(plan, EffectPlan):
+            raise RGBHardwareError("A validated lighting effect is required")
+        return self._send({"effect": plan.effect, "speed": plan.speed, "color": plan.color})
+
+    def _send(self, payload: dict) -> str:
         if not self.ready():
             raise RGBHardwareError("The optional root-owned RGB helper is not installed")
-        request = json.dumps({"zones": list(plan.zones), "brightness": plan.brightness}, separators=(",", ":"))
+        request = json.dumps(payload, separators=(",", ":"))
         try:
             proc = self.runner(["pkexec", str(self.helper)], input=request, text=True,
                                capture_output=True, timeout=45, check=False)

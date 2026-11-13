@@ -45,6 +45,16 @@ class KeyboardPreviewTests(unittest.TestCase):
             self.assertAlmostEqual(a, b)
         self.assertNotEqual(advanced, faster)
 
+    def test_shifting_moves_the_selected_color_without_changing_hue(self):
+        frames = [lighting_gradient("Shifting", 80, color="#8030C0", speed=4, elapsed=t)
+                  for t in (0, 0.5)]
+        for frame in frames:
+            for red, green, blue in frame:
+                self.assertAlmostEqual(red / blue, 128 / 192)
+                self.assertAlmostEqual(green / blue, 48 / 192)
+        peaks = [max(range(len(frame)), key=lambda index: frame[index][2]) for frame in frames]
+        self.assertEqual(peaks, [0, 9])
+
     def test_zoom_expands_symmetrically_from_the_center_and_returns(self):
         contracted = lighting_gradient("Zoom", 100, color="#FF0000", speed=4, elapsed=0)
         expanded = lighting_gradient("Zoom", 100, color="#FF0000", speed=4, elapsed=1)
