@@ -6,6 +6,7 @@ from unittest.mock import patch
 from types import SimpleNamespace
 
 from nitro_control import rgb_privileged
+from nitro_control.rgb import EffectPlan
 
 
 class HelperTests(unittest.TestCase):
@@ -31,6 +32,27 @@ class HelperTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertFalse(reply["ok"])
             backend.assert_not_called()
+
+    def test_rejects_unsupported_effects_and_invalid_parameters(self):
+        for overrides in ({"effect": "Meteor"}, {"speed": True}, {"speed": 10},
+                          {"color": "red"}, {"brightness": 65}):
+            payload = {"effect": "Wave", "speed": 4, "color": "#000000"} | overrides
+            code, reply, backend = self.invoke(json.dumps(payload).encode())
+            self.assertEqual(code, 1)
+            self.assertFalse(reply["ok"])
+            backend.assert_not_called()
+
+    def test_routes_effect_request_to_validated_effect_plan(self):
+        request = b'{"effect":"Breathing","speed":4,"color":"#22CAFF"}'
+        result = SimpleNamespace(backend="native-wmi", verified_readback=True, detail="verified")
+        with patch("nitro_control.rgb_privileged.RGBHardware") as constructor:
+            constructor.return_value.apply_effect.return_value = result
+            with patch("nitro_control.rgb_privileged.os.geteuid", return_value=0), \
+                 patch("nitro_control.rgb_privileged.sys.stdin", SimpleNamespace(buffer=io.BytesIO(request))), \
+                 patch("nitro_control.rgb_privileged.sys.stdout", io.StringIO()):
+                self.assertEqual(rgb_privileged.main(), 0)
+            constructor.return_value.apply_effect.assert_called_once_with(EffectPlan("Breathing", 4, "#22CAFF"))
+            constructor.return_value.apply.assert_not_called()
 
     def test_rejects_oversized_request(self):
         code, reply, backend = self.invoke(b' ' * (rgb_privileged.MAX_REQUEST_BYTES + 1))

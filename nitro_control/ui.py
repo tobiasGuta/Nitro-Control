@@ -21,8 +21,9 @@ from .monitor_history import MonitorHistory
 from .dashboard_visuals import FanDial, KeyboardPreview, TelemetryGraph, section
 from .keyboard_preview import COLOR_EFFECTS, EFFECTS
 from .models import Snapshot
+from .native_rgb import NativeRGB
 from .profiles import DISPLAY, PowerProfileController, PowerState
-from .rgb import LightingPlan, PRESETS
+from .rgb import EffectPlan, LightingPlan, PHYSICAL_EFFECT_MODES, PRESETS
 from .rgb_client import RGBClient
 from .rgb_hardware import RGBHardware, RGBCapability
 from .tray_preferences import load_keep_in_tray, save_keep_in_tray, start_tray_process
@@ -187,6 +188,8 @@ class NitroWindow(Adw.ApplicationWindow):
         self._rgb_client = RGBClient()
         self._rgb_status = RGBCapability("none", "Unavailable", False, "Not checked")
         self._rgb_hw_busy = False
+        self._rgb_effect_result = False
+        self._effects_available = not demo and NativeRGB().effects_supported()
         self._rgb_rendering = False
         self._power = PowerProfileController()
         self._power_state: PowerState | None = None
@@ -601,12 +604,12 @@ class NitroWindow(Adw.ApplicationWindow):
         self.rgb_modes.add_titled(static, "static", "Static")
 
         dynamic = Adw.PreferencesGroup(
-            description="Effects are simulated on screen.",
+            description="Preview any effect. Supported effects can also run on the physical keyboard.",
             css_classes=["nitro-panel-group"],
         )
         self.rgb_effect = Adw.ComboRow(title="Effect")
         self.rgb_effect.set_model(Gtk.StringList.new(list(EFFECTS)))
-        self.rgb_effect.connect("notify::selected", self._sync_keyboard_preview)
+        self.rgb_effect.connect("notify::selected", self._on_effect_selected)
         dynamic.add(self.rgb_effect)
 
         self.rgb_effect_color_row = Adw.ActionRow(title="Effect color")
@@ -638,6 +641,13 @@ class NitroWindow(Adw.ApplicationWindow):
         self.rgb_effect_playing = Adw.SwitchRow(title="Animate preview", active=True)
         self.rgb_effect_playing.connect("notify::active", self._sync_keyboard_preview)
         dynamic.add(self.rgb_effect_playing)
+        self.rgb_effect_hardware_row = Adw.ActionRow(title="Physical keyboard")
+        self.rgb_effect_hardware_row.set_subtitle_lines(0)
+        self.rgb_apply_effect = Gtk.Button(label="Apply effect to keyboard", valign=Gtk.Align.CENTER)
+        self.rgb_apply_effect.add_css_class("suggested-action")
+        self.rgb_apply_effect.connect("clicked", self._request_rgb_effect)
+        self.rgb_effect_hardware_row.add_suffix(self.rgb_apply_effect)
+        dynamic.add(self.rgb_effect_hardware_row)
         self.rgb_modes.add_titled(dynamic, "dynamic", "Dynamic")
         self.rgb_modes.connect("notify::visible-child-name", self._on_rgb_mode_changed)
 
@@ -1171,6 +1181,7 @@ class NitroWindow(Adw.ApplicationWindow):
         selected = self.rgb_effect.get_selected()
         effect = EFFECTS[selected] if selected < len(EFFECTS) else EFFECTS[0]
         self.rgb_effect_color_row.set_visible(effect in COLOR_EFFECTS)
+        self._sync_effect_button()
         preview = LightingPlan(self._rgb_draft().zones, round(self.rgb_effect_brightness.get_value()))
         self.rgb_keyboard.update_lighting(
             preview, effect=effect, color=self._rgb_hex(self.rgb_effect_color.get_rgba()),
@@ -1196,7 +1207,77 @@ class NitroWindow(Adw.ApplicationWindow):
     def _reset_rgb_preview(self, *_args) -> None:
         self._set_rgb_editor(PRESETS["Midnight"])
 
+    def _on_effect_selected(self, *_args) -> None:
+        self._rgb_effect_result = False
+        self._sync_keyboard_preview()
+
+    def _sync_effect_button(self) -> None:
+        selected = self.rgb_effect.get_selected()
+        supported = selected < len(EFFECTS) and EFFECTS[selected] in PHYSICAL_EFFECT_MODES
+        self.rgb_apply_effect.set_visible(supported)
+        ready = (self._effects_available and self._rgb_status.backend == "native-wmi"
+                 and self._rgb_status.available and self._rgb_client.ready())
+        self.rgb_apply_effect.set_sensitive(ready and not self._rgb_hw_busy)
+        if not self._rgb_hw_busy and (not self._rgb_effect_result or not supported):
+            if self._demo or not supported:
+                detail = "On-screen preview only."
+            elif not ready:
+                detail = "Physical effects require the updated native RGB module and helper."
+            else:
+                detail = "Uses 100% firmware brightness. The preview brightness slider is on-screen only."
+            self.rgb_effect_hardware_row.set_subtitle(detail)
+
+    def _request_rgb_effect(self, *_args) -> None:
+        selected = self.rgb_effect.get_selected()
+        if (self._demo or self._closed or self._rgb_hw_busy
+                or self.rgb_modes.get_visible_child_name() != "dynamic"
+                or selected >= len(EFFECTS) or EFFECTS[selected] not in PHYSICAL_EFFECT_MODES
+                or not self._effects_available or self._rgb_status.backend != "native-wmi"
+                or not self._rgb_status.available or not self._rgb_client.ready()):
+            return
+        effect = EFFECTS[selected]
+        color = self._rgb_hex(self.rgb_effect_color.get_rgba()) if effect in COLOR_EFFECTS else "#000000"
+        plan = EffectPlan(effect, round(self.rgb_effect_speed.get_value()), color)
+        dialog = Adw.AlertDialog.new(
+            f"Apply {effect} to the physical keyboard?",
+            "Physical effects use 100% firmware brightness. To switch back, open Static and apply your palette.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("apply", f"Apply {effect}")
+        dialog.set_response_appearance("apply", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._confirm_rgb_effect, plan)
+        dialog.present(self)
+
+    def _confirm_rgb_effect(self, _dialog, response: str, plan: EffectPlan) -> None:
+        if (response != "apply" or self._closed or self._rgb_hw_busy
+                or self.rgb_modes.get_visible_child_name() != "dynamic"):
+            return
+        self._rgb_hw_busy = True
+        self._rgb_effect_result = False
+        self._sync_rgb_hardware_button()
+        self.rgb_effect_hardware_row.set_subtitle(f"Authorizing {plan.effect}…")
+        Thread(target=self._apply_effect_background, args=(plan,), daemon=True,
+               name="nitro-rgb-effect").start()
+
+    def _apply_effect_background(self, plan: EffectPlan) -> None:
+        try:
+            detail = self._rgb_client.apply_effect(plan)
+        except Exception as exc:
+            detail = f"{plan.effect} could not be verified: {exc}"
+        GLib.idle_add(self._finish_effect, detail)
+
+    def _finish_effect(self, detail: str) -> bool:
+        self._rgb_hw_busy = False
+        if not self._closed:
+            self._rgb_effect_result = True
+            self.rgb_effect_hardware_row.set_subtitle(detail)
+            self._sync_rgb_hardware_button()
+        return False
+
     def _sync_rgb_hardware_button(self) -> None:
+        self._sync_effect_button()
         ready = (self.rgb_modes.get_visible_child_name() == "static"
                  and not self._demo and not self._rgb_hw_busy and
                  self._rgb_status.available and self._rgb_client.ready())
@@ -1265,6 +1346,7 @@ class NitroWindow(Adw.ApplicationWindow):
             f"Hardware change failed or unverified: {error}" if error else message or "No confirmed software response"
         )
         self._rgb_status = self._rgb_hardware.probe()
+        self._rgb_effect_result = False
         self._sync_rgb_hardware_button()
         return False
 

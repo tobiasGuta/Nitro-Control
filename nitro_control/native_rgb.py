@@ -15,7 +15,7 @@ import stat
 import subprocess
 
 from . import RGB_WMI_GUID
-from .rgb import LightingPlan
+from .rgb import EffectPlan, LightingPlan, PHYSICAL_EFFECT_MODES
 
 MOD_NAME = "nitro_rgb_enable_poc"
 MODULE_SUBPATH = "extra/nitro-control/nitro_rgb_enable_poc.ko"
@@ -113,6 +113,27 @@ class NativeRGB:
                 vermagic.stdout.split()[:1] != [self.kernel]):
             raise NativeRGBError("Native RGB module identity or kernel version mismatch")
 
+    def effects_supported(self) -> bool:
+        if not self.status()[0]:
+            return False
+        try:
+            params = _run(["/usr/sbin/modinfo", "-p", str(self.module)], timeout=2)
+        except NativeRGBError:
+            return False
+        return params.returncode == 0 and any(
+            line.startswith("effect_mode:") for line in params.stdout.splitlines()
+        )
+
+    def apply_effect(self, plan: EffectPlan) -> str:
+        if not isinstance(plan, EffectPlan):
+            raise NativeRGBError("A validated lighting effect is required")
+        if not self.effects_supported():
+            raise NativeRGBError("Install the Dynamic-capable native RGB module for this kernel")
+        mode = PHYSICAL_EFFECT_MODES[plan.effect]
+        self._apply_module([f"effect_mode={mode}", f"effect_speed={plan.speed}",
+                            f"effect_rgb=0x{plan.color[1:]}", "brightness=100"])
+        return f"{plan.effect} mode verified. Select Static and apply your palette to switch back."
+
     def apply(self, plan: LightingPlan) -> str:
         if not isinstance(plan, LightingPlan):
             raise NativeRGBError("A validated four-zone lighting plan is required")
@@ -123,6 +144,11 @@ class NativeRGB:
             raise NativeRGBError(
                 "Native Acer WMI currently requires 100% apply brightness; "
                 "use Fn+F9/Fn+F10 for physical dimming")
+        colors = ",".join(zone[1:] for zone in plan.zones)
+        self._apply_module(["apply=1", f"colors={colors}", f"brightness={plan.brightness}"])
+        return "Native WMI firmware confirmed four zone color readbacks; verify the keyboard visually"
+
+    def _apply_module(self, params: list[str]) -> None:
         if os.geteuid() != 0:
             raise NativeRGBError("Native RGB changes require administrator authorization")
         ready, reason = self.status()
@@ -144,12 +170,10 @@ class NativeRGB:
             ready, reason = self.status()
             if not ready:
                 raise NativeRGBError(reason)
-            colors = ",".join(zone[1:] for zone in plan.zones)
             inserted = False
             failed = None
             try:
-                outcome = _run(["/usr/sbin/insmod", str(self.module), "apply=1",
-                                f"colors={colors}", f"brightness={plan.brightness}"])
+                outcome = _run(["/usr/sbin/insmod", str(self.module), *params])
                 inserted = outcome.returncode == 0
                 if not inserted:
                     failed = f"Native RGB firmware write failed: {outcome.stderr.strip()[:240]}"
@@ -163,7 +187,6 @@ class NativeRGB:
                 raise NativeRGBError(failed)
             if not self._fans_available() or not self.path("sys/firmware/acpi/platform_profile").is_file():
                 raise NativeRGBError("RGB was applied, but Acer monitoring disappeared; inspect driver state")
-            return "Native WMI firmware confirmed four zone color readbacks; verify the keyboard visually"
         except BlockingIOError as exc:
             raise NativeRGBError("Another native RGB operation is already active") from exc
         finally:
