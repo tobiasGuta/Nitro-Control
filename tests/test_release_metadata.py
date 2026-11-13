@@ -56,8 +56,8 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertNotIn("pkexec ", content)
         self.assertNotIn("modprobe ", content)
 
-    def test_release_notes_do_not_claim_unavailable_fan_controls(self):
-        release_name = f"RELEASE-v{__version__}.md"
+    def test_original_preview_notes_preserve_release_scope(self):
+        release_name = "RELEASE-v0.4.0-preview.2.md"
         notes = (ROOT / "docs" / release_name).read_text(encoding="utf-8")
         self.assertIn("no manual fan pwm", notes.lower())
         self.assertIn("exactly 100%", notes)

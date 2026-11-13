@@ -10,9 +10,9 @@ if [[ ${EUID} -eq 0 ]]; then
 fi
 
 repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
-old_commit="a6496d50dd39278989c56239a21f97555a643694"
-new_version="Nitro Control 0.4.0-preview.2"
-old_version="Nitro Control 0.4.0-preview.1"
+old_commit="v0.4.0-preview.2"
+new_version="Nitro Control 0.4.0-preview.3"
+old_version="Nitro Control 0.4.0-preview.2"
 
 if ! command -v git >/dev/null || ! command -v tar >/dev/null; then
   echo "This smoke test requires git and tar." >&2

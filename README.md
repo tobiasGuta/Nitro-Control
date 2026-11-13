@@ -2,7 +2,9 @@
 
 **A native GNOME dashboard for Acer Nitro laptops, initially tested against the AN515-58 interface.**
 
-Version 0.4.0-preview.2 **(source preview)** • opt-in experimental Acer WMI RGB, tested on a reference AN515-58 only • Python 3.11+ • MIT license
+Version 0.4.0-preview.3 **(source preview)** • optional AN515-58 fan control and experimental Acer WMI RGB • Python 3.11+ • MIT license
+
+[Release notes for v0.4.0-preview.3](docs/RELEASE-v0.4.0-preview.3.md)
 
 Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. The GUI never runs as root or directly calls WMI. An optional, separately installed native-RGB development backend can execute a root-owned, one-shot WMI kernel module while keeping stock `acer_wmi` loaded. It never writes fan PWM.
 
@@ -63,7 +65,7 @@ animation is slowed for display; the RPM numbers are the real readings.
 The power-profile confirmation flow and four-zone RGB
 **Polkit authorization + 100%-brightness native WMI initialization guard**
 are unchanged. The preview release provided fan monitoring. The fan-control
-patch adds the optional controls described below.
+release adds the optional controls described below.
 
 The owner visually reviewed all three pages, ordinary/maximized
 layout, and confirmed the local-only RGB preset/preview/reset workflow
