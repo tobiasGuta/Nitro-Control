@@ -106,7 +106,7 @@ class FanDial(Gtk.DrawingArea):
     def _accessible(self):
         value = f"{self._rpm:,} RPM" if self._rpm is not None else "Unavailable"
         self.set_tooltip_text(
-            f"{self._name}: {value}; {fan_mode_description(self._mode)}; read-only. "
+            f"{self._name}: {value}; {fan_mode_description(self._mode)}. "
             "Visual rotation follows measured RPM at a slowed display rate.")
 
     def update(self, name: str, rpm: int | None, mode: str) -> None:
@@ -170,7 +170,7 @@ class FanDial(Gtk.DrawingArea):
         _text(ctx, "RPM" if self._rpm is not None else "NO SENSOR",
               cx, cy + 30, 10, (0.65, 0.65, 0.68), center=True)
         _text(ctx, self._name[:24], cx, height - 34, 13, center=True, bold=True)
-        _text(ctx, "READ-ONLY · FIRMWARE CONTROL", cx, height - 16, 9,
+        _text(ctx, fan_mode_description(self._mode).upper(), cx, height - 16, 9,
               (0.54, 0.54, 0.58), center=True)
 
 class RGBZoneStrip(Gtk.DrawingArea):

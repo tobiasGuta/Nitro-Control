@@ -164,10 +164,9 @@ class DashboardSafetyContracts(unittest.TestCase):
         for dangerous in ("pwm", "insmod", "modprobe", "subprocess.run"):
             self.assertNotIn(dangerous, artwork)
 
-    def test_no_fabricated_fan_control_buttons(self):
+    def test_fan_readouts_and_optional_controls(self):
         source = (ROOT / "nitro_control" / "ui.py").read_text()
         self.assertIn("FAN STATUS", source)
-        self.assertIn("Live RPM · control mode may be unavailable", source)
         self.assertIn('value.set_text(fan_mode_description(fan.control_mode))', source)
         self.assertIn('self.fan_mode_titles[index].set_text(f"{display_name.upper()} · MODE")', source)
         self.assertIn('value.add_css_class("nitro-fan-muted")', source)
@@ -175,12 +174,10 @@ class DashboardSafetyContracts(unittest.TestCase):
         self.assertNotIn('value.set_text(_number(fan.rpm, "RPM"))', source)
         self.assertIn("self.overview_firmware_value.set_text(data.firmware_profile or \"Unavailable\")", source)
         self.assertIn("self.overview_tuned_value.set_text(data.tuned_profile or \"Unavailable\")", source)
-        self.assertNotIn('Gtk.Button(label="Max")', source)
-        self.assertNotIn('Gtk.Button(label="Custom")', source)
-        self.assertNotIn('Gtk.Button(label="CoolBoost")', source)
-        self.assertNotIn('Fan Max / Custom unavailable', source)
-        self.assertNotIn('No CoolBoost / Max / Custom PWM controls', source)
-        self.assertIn('No manual fan speed control', source)
+        self.assertIn('self.fan_controls.set_visible(ready)', source)
+        self.assertIn('ready = self._fan_available and self._fan_client.ready()', source)
+        self.assertIn('dialog.set_default_response("cancel")', source)
+        self.assertIn('self._fan_client.apply(plan)', source)
         self.assertIn('button.suggested-action:disabled', source)
 
 

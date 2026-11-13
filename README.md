@@ -62,9 +62,8 @@ animation is slowed for display; the RPM numbers are the real readings.
 
 The power-profile confirmation flow and four-zone RGB
 **Polkit authorization + 100%-brightness native WMI initialization guard**
-are unchanged. **Fan Max/Custom/CoolBoost controls are not supported or
-emulated**. The hardware backend remains experimental and opt-in: merging
-the UI does not install kernel drivers or enable boot-time RGB changes.
+are unchanged. The preview release provided fan monitoring. The fan-control
+patch adds the optional controls described below.
 
 The owner visually reviewed all three pages, ordinary/maximized
 layout, and confirmed the local-only RGB preset/preview/reset workflow
@@ -75,30 +74,23 @@ for new features, Fedora dependency requirements (`python3-cairo`),
 GUI-only installation/rollback and known limitations.
 See also [GUI design/validation notes](docs/NITROSENSE-UI-REDESIGN.md).
 
-## Next milestone: independent fan-control research (AN515-58)
+## Optional fan control (AN515-58)
 
-**[Issue #12 — Research independent CPU/GPU fan control on AN515-58](https://github.com/tobiasGuta/Nitro-Control/issues/12)**
+In **Dashboard → Fan monitoring**, choose **Auto**, **Max**, or **Custom**.
+Custom provides separate CPU and GPU sliders with per-fan Auto toggles. Max
+asks for confirmation. On the reference AN515-58, all three modes worked
+through stock `acer_wmi` while the power profiles stayed on Balanced.
 
-The next research target is to determine whether the reference Acer Nitro
-AN515-58 exposes fan behavior/speed requests independent of the Linux
-power profile, **without replacing or blacklisting the stock `acer_wmi`
-driver**. This is **read-only investigation first**, not a supported
-fan-control feature. There are **no manual fan speed sliders or PWM
-writes** in Nitro-Control.
+Install the optional helper from this source checkout, then launch or update
+the dashboard from the same checkout:
 
-Another community project has published fan-control evidence for the
-*different* AN515-45 model; this is useful for source research but **does
-not validate any WMI fan-write methods on AN515-58**. Before any physical
-fan-control experiments, the project requires a reviewed, model-specific
-safety design, explicit owner approval, reliable automatic restoration
-and verification that power profiles and existing keyboard RGB behavior
-are not disrupted. If safe independence cannot be proven, the fans
-will remain read-only.
+```bash
+sudo ./scripts/install-fan-helper-fedora.sh
+/usr/bin/python3 -m nitro_control
+```
 
-The previous [NitroSense-inspired release milestone #6](https://github.com/tobiasGuta/Nitro-Control/issues/6)
-was completed with the published [v0.4.0-preview.2 prerelease](https://github.com/tobiasGuta/Nitro-Control/releases/tag/v0.4.0-preview.2).
-The new research issue neither updates that release nor changes any
-installed drivers or startup behavior.
+See the [fan-control guide](docs/FAN-CONTROL.md) for setup, hardware results,
+troubleshooting, and removal.
 
 ## v0.4.0-preview.1: native AN515-58 RGB while preserving stock Acer monitoring
 
@@ -234,7 +226,7 @@ Tests use a disposable simulated sysfs tree shaped like the AN515-58, plus an in
 - The desktop power-mode operation uses only the standard D-Bus `ActiveProfile` property. The optional RGB path invokes a **root-owned** one-shot helper through `pkexec`; nothing privileged is imported from the user-writable GUI installation.
 - Power Saver, Balanced, and Performance are desktop modes. The five Acer firmware-supported names remain read-only; do not assume a one-to-one mapping.
 - JSON output includes device model and measurements, not hostname, machine ID, MAC address, or exact filesystem paths.
-- Linux `pwmN_enable >= 2` conventionally means automatic control. The app **reports** this without writing `pwmN` or inferring a percentage from its value.
+- Fan settings use a separate root-owned Polkit helper and are independent of the desktop power-profile controller.
 - An Acer WMI GUID can be present on a device with different physical keyboard variants. Its presence is **not** proof of four-zone RGB.
 
 ## Project layout
@@ -244,6 +236,8 @@ nitro_control/
   __main__.py       CLI, demo, JSON, GUI launch
   ui.py             GTK4/Libadwaita dashboard
   hardware.py       isolated read-only hardware adapters
+  fan_control.py    stock Acer hwmon detection and privileged fan writes
+  fan_client.py     unprivileged client for the optional fan helper
   profiles.py       optional desktop power-mode service with validation
   rgb.py            validated four-zone plans and in-memory preview backend
   rgb_hardware.py   exact-model, exact-endpoint sysfs RGB adapters
