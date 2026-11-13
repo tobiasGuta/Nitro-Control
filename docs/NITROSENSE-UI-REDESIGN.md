@@ -11,6 +11,9 @@ Nitro Control uses its own UI artwork and branding, not copied Acer
 logos or proprietary NitroSense assets. Native RGB hardware operations
 remain independently guarded and experimental.
 
+These notes describe the original dashboard release. The later
+[fan-control guide](FAN-CONTROL.md) covers Auto, Max, and Custom on the AN515-58.
+
 ## Fedora screenshot review — first draft vs reference
 
 The owner ran the standalone `--demo` preview on the actual Fedora 45

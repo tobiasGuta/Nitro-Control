@@ -14,6 +14,8 @@ from gi.repository import Adw, Gdk, GLib, Gtk, Pango
 from . import APP_ID, __version__
 from .demo import demo_snapshot
 from .hardware import HardwareReader
+from .fan_client import FanClient
+from .fan_control import MIN_PERCENT, MODES, FanPlan, find_fan_controls, read_fan_plan
 from .fan_presentation import fan_display_name, fan_mode_description
 from .monitor_history import MonitorHistory
 from .dashboard_visuals import FanDial, RGBZoneStrip, TelemetryGraph, section
@@ -28,7 +30,7 @@ REFRESH_SECONDS = 4
 
 CSS = """
 /* Original Nitro-Control interpretation of the supplied NitroSense reference.
-   All indicators represent real data; no mocked control states or fan buttons. */
+   All dashboard indicators represent real data. */
 window.nitro-window { background: #09090d; color: #eeeeef; }
 headerbar { background: #15151a; border-bottom: 1px solid #3a2026; }
 .nitro-brand { color: #f0f0f0; font-size: 20px; font-weight: 800; letter-spacing: 5px; }
@@ -161,6 +163,14 @@ class NitroWindow(Adw.ApplicationWindow):
         self.add_css_class("nitro-window")
         self._demo = demo
         self._reader = HardwareReader()
+        self._fan_client = FanClient()
+        self._fan_available = False
+        self._fan_active: FanPlan | None = None
+        self._fan_busy = False
+        self._fan_editing = False
+        self._fan_rendering = False
+        self._fan_revision = 0
+        self._fan_feedback: str | None = None
         self._history = MonitorHistory()
         self._rgb_preview = PreviewBackend()
         self._rgb_hardware = RGBHardware()
@@ -298,14 +308,11 @@ class NitroWindow(Adw.ApplicationWindow):
         top.append(status_row)
         content.append(top)
 
-        # The reference's large upper fan section: two turbines and a passive
-        # mode readout, not copied Max/Custom control buttons.
         fans = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=18)
         fans.set_hexpand(True)
         fan_info = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        fan_info.set_size_request(230, -1)
+        fan_info.set_size_request(245, -1)
         fan_info.append(_label("FAN STATUS", css="nitro-accent"))
-        fan_info.append(_label("Live RPM · control mode may be unavailable", css="nitro-readonly"))
         # Show the *reported* fan modes here. The large dial is the sole
         # numerical RPM readout; repeating it at the left obscured the
         # reference's control/status hierarchy.
@@ -327,11 +334,15 @@ class NitroWindow(Adw.ApplicationWindow):
             hint.set_wrap(True)
             row.append(hint)
             fan_info.append(row)
-        fan_info.append(_label("No manual fan speed control", css="nitro-readonly"))
+        fan_info.append(self._build_fan_controls())
         fans.append(fan_info)
         self.fan_dials = (FanDial("Fan 1"), FanDial("Fan 2"))
-        for dial in self.fan_dials:
-            fans.append(dial)
+        for dial, slider in zip(self.fan_dials, self.fan_custom):
+            column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+            column.set_hexpand(True)
+            column.append(dial)
+            column.append(slider)
+            fans.append(column)
         content.append(section("Fan monitoring", fans, min_height=285))
 
         lower = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
@@ -382,7 +393,7 @@ class NitroWindow(Adw.ApplicationWindow):
         lower.append(monitoring_section)
 
         footer = _label(
-            "Real hardware readings only  •  Fans read-only  •  "
+            "Real hardware readings only  •  "
             "Power mode changes require confirmation  •  Nitro Control v" + __version__,
             css="info-note")
         footer.set_wrap(True)
@@ -467,14 +478,14 @@ class NitroWindow(Adw.ApplicationWindow):
         self.overview_tuned_value.set_wrap(True)
         self.power_panel.append(self.overview_tuned_value)
 
-        cooling_group = Adw.PreferencesGroup(title="Cooling", description="Fan readings are passive. Firmware remains in control of the fans.")
+        cooling_group = Adw.PreferencesGroup(title="Cooling")
         self.fan_rows = []
         for i in range(4):
             row, val = _readout_row(f"Fan {i + 1}")
             cooling_group.add(row)
             self.fan_rows.append((row, val))
         hardware_content.append(_panel_group(
-            "Cooling", "Real fan RPM only. Firmware keeps control; no manual PWM operations.",
+            "Cooling", "Live fan speed and control mode.",
             cooling_group))
 
         thermal_group = Adw.PreferencesGroup(title="Temperature sensors", description="Unlabeled Acer firmware sensors are not guessed to be CPU or GPU.")
@@ -594,7 +605,7 @@ class NitroWindow(Adw.ApplicationWindow):
             editor))
         self._set_rgb_editor(self._rgb_preview.current())
 
-        note = _label("Fans remain read-only  •  Preview is simulated; physical Apply uses a detected driver and administrator-authorized helper  •  Nitro Control v" + __version__, css="info-note")
+        note = _label("Preview is simulated; physical Apply uses a detected driver and administrator-authorized helper  •  Nitro Control v" + __version__, css="info-note")
         note.set_wrap(True)
         lighting_content.append(note)
 
@@ -654,6 +665,8 @@ class NitroWindow(Adw.ApplicationWindow):
 
     def _on_close(self, *_args) -> bool:
         # Do not terminate the opt-in, separate GTK3 tray process.
+        if self._fan_busy:
+            return True
         self._closed = True
         return False
 
@@ -677,13 +690,14 @@ class NitroWindow(Adw.ApplicationWindow):
         return True
 
     def _request_refresh(self) -> None:
-        if self._busy or self._closed or self._power_busy:
+        if self._busy or self._closed or self._power_busy or self._fan_busy:
             return
         self._busy = True
         self.status_label.set_text("Reading sensors…" if not self._demo else "DEMO MODE • sample data")
-        Thread(target=self._collect_background, daemon=True, name="nitro-hardware-reader").start()
+        Thread(target=self._collect_background, args=(self._fan_revision,), daemon=True,
+               name="nitro-hardware-reader").start()
 
-    def _collect_background(self) -> None:
+    def _collect_background(self, fan_revision: int) -> None:
         try:
             result = demo_snapshot() if self._demo else self._reader.collect()
             error = None
@@ -696,10 +710,15 @@ class NitroWindow(Adw.ApplicationWindow):
         except Exception as exc:
             state = None
             power_error = str(exc)
-        GLib.idle_add(self._finish_refresh, result, error, state, power_error)
+        hwmon = None if self._demo else find_fan_controls()
+        fan_plan = read_fan_plan(hwmon) if hwmon is not None else None
+        GLib.idle_add(self._finish_refresh, result, error, state, power_error,
+                      hwmon is not None, fan_plan, fan_revision)
 
     def _finish_refresh(self, snapshot: Snapshot | None, error: str | None,
-                        state: PowerState | None, power_error: str | None) -> bool:
+                        state: PowerState | None, power_error: str | None,
+                        fan_available: bool, fan_plan: FanPlan | None,
+                        fan_revision: int) -> bool:
         self._busy = False
         if self._closed:
             return False
@@ -708,7 +727,158 @@ class NitroWindow(Adw.ApplicationWindow):
             self.status_icon.set_from_icon_name("dialog-warning-symbolic")
         elif snapshot:
             self._render(snapshot)
+        if fan_revision == self._fan_revision:
+            if self._fan_active is not None and fan_plan != self._fan_active:
+                self._fan_feedback = None
+            self._render_fan_controls(fan_available, fan_plan)
         self._render_power(state, power_error)
+        return False
+
+    def _build_fan_controls(self) -> Gtk.Box:
+        controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.fan_controls = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        self.fan_controls.set_visible(False)
+        controls.append(self.fan_controls)
+        self.fan_mode = Gtk.DropDown.new_from_strings(list(MODES))
+        self.fan_mode.update_property([Gtk.AccessibleProperty.LABEL], ["Fan mode"])
+        self.fan_mode.connect("notify::selected", self._on_fan_edit)
+        self.fan_controls.append(self.fan_mode)
+
+        self.fan_custom = []
+        self.fan_settings = []
+        for name in ("CPU fan", "GPU fan"):
+            slider = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+            slider.set_visible(False)
+            slider.set_halign(Gtk.Align.CENTER)
+            auto = Gtk.CheckButton(label="Auto")
+            auto.update_property([Gtk.AccessibleProperty.LABEL], [f"{name} Auto"])
+            auto.connect("toggled", self._on_fan_edit)
+            speed = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, MIN_PERCENT, 100, 1)
+            speed.set_size_request(135, -1)
+            speed.update_property([Gtk.AccessibleProperty.LABEL], [f"{name} speed"])
+            speed.set_value(MIN_PERCENT)
+            speed.set_draw_value(True)
+            speed.set_format_value_func(lambda _scale, value: f"{value:.0f}%")
+            speed.connect("value-changed", self._on_fan_edit)
+            slider.append(speed)
+            slider.append(auto)
+            self.fan_custom.append(slider)
+            self.fan_settings.append((auto, speed))
+
+        self.fan_apply = Gtk.Button(label="Apply fan settings")
+        self.fan_apply.add_css_class("suggested-action")
+        self.fan_apply.set_sensitive(False)
+        self.fan_apply.connect("clicked", self._request_fan_change)
+        self.fan_controls.append(self.fan_apply)
+        self.fan_feedback = _label("Checking fan controls…", css="nitro-readonly")
+        self.fan_feedback.set_wrap(True)
+        self.fan_feedback.set_max_width_chars(29)
+        controls.append(self.fan_feedback)
+        return controls
+
+    def _render_fan_controls(self, available: bool, active: FanPlan | None) -> None:
+        self._fan_available = available
+        self._fan_active = active
+        if not self._fan_editing:
+            self._fan_rendering = True
+            try:
+                self.fan_mode.set_selected(MODES.index(active.mode) if active else 0)
+                for (auto, scale), speed in zip(self.fan_settings, active.channels if active else (None, None)):
+                    auto.set_active(active is not None and active.mode == "Custom" and speed is None)
+                    scale.set_value(speed if speed is not None else MIN_PERCENT)
+            finally:
+                self._fan_rendering = False
+        self._sync_fan_controls()
+
+    def _fan_draft(self) -> FanPlan:
+        mode = MODES[self.fan_mode.get_selected()]
+        if mode == "Custom":
+            speeds = [None if auto.get_active() else round(scale.get_value())
+                      for auto, scale in self.fan_settings]
+            if any(speed is not None for speed in speeds):
+                return FanPlan(mode, *speeds)
+            return FanPlan("Auto")
+        return FanPlan(mode)
+
+    def _on_fan_edit(self, *_args) -> None:
+        if not self._fan_rendering:
+            self._fan_editing = True
+            self._fan_feedback = None
+            self._sync_fan_controls()
+
+    def _sync_fan_controls(self) -> None:
+        ready = self._fan_available and self._fan_client.ready()
+        self.fan_controls.set_visible(ready)
+        editable = not self._fan_busy and not self._power_busy
+        self.fan_controls.set_sensitive(editable)
+        custom = MODES[self.fan_mode.get_selected()] == "Custom"
+        for slider, (auto, scale) in zip(self.fan_custom, self.fan_settings):
+            slider.set_visible(ready and custom)
+            slider.set_sensitive(editable)
+            scale.set_sensitive(not auto.get_active())
+        self.fan_apply.set_sensitive(ready and self._fan_draft() != self._fan_active)
+        message = self._fan_feedback
+        if self._demo:
+            message = "Fan controls are disabled in Demo."
+        elif not self._fan_available:
+            message = "Fan controls require stock Acer PWM support on the AN515-58."
+        elif not ready:
+            message = "Install the optional fan helper to change speeds."
+        elif not message and self._fan_active is None:
+            message = "Fan mode unverified. Apply Auto to restore firmware control."
+        self.fan_feedback.set_text(message or "")
+        self.fan_feedback.set_visible(bool(message))
+
+    def _request_fan_change(self, *_args) -> None:
+        if self._demo or self._fan_busy or self._power_busy or not self._fan_available:
+            return
+        plan = self._fan_draft()
+        if plan.mode != "Max":
+            self._start_fan_change(plan)
+            return
+        dialog = Adw.AlertDialog.new(
+            "Run both fans at full speed?",
+            "The fans will get loud. Select Auto and apply it to return control to the firmware."
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("apply", "Run fans at Max")
+        dialog.set_response_appearance("apply", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._confirm_max_fans, plan)
+        dialog.present(self)
+
+    def _confirm_max_fans(self, _dialog, response: str, plan: FanPlan) -> None:
+        if response == "apply":
+            self._start_fan_change(plan)
+
+    def _start_fan_change(self, plan: FanPlan) -> None:
+        if (self._closed or self._demo or self._fan_busy or self._power_busy
+                or not self._fan_available or not self._fan_client.ready()):
+            return
+        self._fan_busy = True
+        self._fan_revision += 1
+        self._fan_feedback = "Authorizing fan settings…"
+        self._sync_fan_controls()
+        self._sync_power_button()
+        Thread(target=self._apply_fans_background, args=(plan,), daemon=True,
+               name="nitro-fan-control").start()
+
+    def _apply_fans_background(self, plan: FanPlan) -> None:
+        try:
+            self._fan_client.apply(plan)
+            error = None
+        except Exception as exc:
+            error = str(exc)
+        GLib.idle_add(self._finish_fan_change, plan, error)
+
+    def _finish_fan_change(self, plan: FanPlan, error: str | None) -> bool:
+        self._fan_busy = False
+        self._fan_editing = error is not None
+        self._fan_feedback = error or f"{plan.mode} applied."
+        self._render_fan_controls(self._fan_available, None if error else plan)
+        self._sync_power_button()
+        self._request_refresh()
         return False
 
     def _selected_power(self) -> str | None:
@@ -724,7 +894,7 @@ class NitroWindow(Adw.ApplicationWindow):
     def _sync_power_button(self) -> None:
         chosen = self._selected_power()
         self.power_apply.set_sensitive(
-            not self._demo and not self._power_busy and self._power_state is not None
+            not self._demo and not self._power_busy and not self._fan_busy and self._power_state is not None
             and chosen is not None and chosen != self._power_state.active
         )
 
@@ -760,7 +930,7 @@ class NitroWindow(Adw.ApplicationWindow):
 
     def _request_power_change(self, *_args) -> None:
         chosen = self._selected_power()
-        if (self._demo or self._power_busy or self._power_state is None or
+        if (self._demo or self._power_busy or self._fan_busy or self._power_state is None or
                 chosen is None or chosen == self._power_state.active):
             return
         dialog = Adw.AlertDialog.new(
@@ -777,11 +947,12 @@ class NitroWindow(Adw.ApplicationWindow):
         dialog.present(self)
 
     def _confirm_power_change(self, _dialog, response: str, chosen: str) -> None:
-        if response != "apply" or self._closed or self._power_busy:
+        if response != "apply" or self._closed or self._power_busy or self._fan_busy:
             return
         self._power_busy = True
         self.power_combo.set_sensitive(False)
         self._sync_power_button()
+        self._sync_fan_controls()
         self.power_status.set_text(f"Requesting {DISPLAY[chosen]}…")
         Thread(target=self._apply_power_background, args=(chosen,), daemon=True,
                name="nitro-power-mode").start()
@@ -803,6 +974,7 @@ class NitroWindow(Adw.ApplicationWindow):
                                 f"Power mode unchanged or unverified: {error}")
         self._power_feedback_profile = state.active if state else None
         self._render_power(state or self._power_state, None)
+        self._sync_fan_controls()
         self._request_refresh()
         return False
 
