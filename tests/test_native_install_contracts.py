@@ -22,6 +22,11 @@ class NativeRGBInstallContracts(unittest.TestCase):
             with self.subTest(path=path.name):
                 subprocess.run(["bash", "-n", str(path)], check=True)
 
+    def test_documented_native_install_and_removal_commands_are_executable(self):
+        for path in (INSTALL, UNINSTALL):
+            with self.subTest(path=path.name):
+                self.assertTrue(path.stat().st_mode & 0o111)
+
     def test_installer_uses_exact_kernel_and_only_stages_copy(self):
         source = INSTALL.read_text()
         for requirement in (

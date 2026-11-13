@@ -122,7 +122,7 @@ class TrayAutostartTests(unittest.TestCase):
             launcher.parent.mkdir(parents=True)
             launcher.write_text("#!/bin/sh\nexit 0\n")
             launcher.chmod(0o755)
-            env = dict(os.environ, HOME=str(home))
+            env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME="")
             installed = subprocess.run(["bash", str(enable)], env=env,
                                        capture_output=True, text=True, timeout=10)
             self.assertEqual(installed.returncode, 0, installed.stderr)
@@ -148,13 +148,40 @@ class TrayAutostartTests(unittest.TestCase):
             target = home / ".config/autostart/io.github.tobiasguta.NitroControl.Tray.desktop"
             target.parent.mkdir(parents=True)
             target.write_text("Not ours\n")
-            env = dict(os.environ, HOME=str(home))
+            env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME="")
             for script in ("enable-tray-autostart-fedora.sh",
                            "disable-tray-autostart-fedora.sh"):
                 p = subprocess.run(["bash", str(ROOT / "scripts" / script)],
                                    env=env, capture_output=True, text=True)
                 self.assertNotEqual(p.returncode, 0)
                 self.assertEqual(target.read_text(), "Not ours\n")
+
+    def test_custom_config_and_uninstall_cleanup(self):
+        if os.geteuid() == 0:
+            self.skipTest("Autostart script correctly refuses root")
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            config_home = home / "custom-config"
+            launcher = home / ".local/bin/nitro-control"
+            launcher.parent.mkdir(parents=True)
+            launcher.write_text("#!/bin/sh\nexit 0\n")
+            launcher.chmod(0o755)
+            env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(config_home))
+            enable = ROOT / "scripts/enable-tray-autostart-fedora.sh"
+            uninstall = ROOT / "scripts/uninstall.sh"
+            relative = Path("autostart/io.github.tobiasguta.NitroControl.Tray.desktop")
+            managed = config_home / relative
+            legacy = home / ".config" / relative
+
+            subprocess.run(["bash", str(enable)], env=env, check=True, timeout=10)
+            self.assertTrue(managed.is_file())
+            self.assertFalse(legacy.exists())
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text("Not ours\n")
+            subprocess.run(["bash", str(uninstall)], env=env, check=True, timeout=10)
+            self.assertFalse(managed.exists())
+            self.assertFalse(launcher.exists())
+            self.assertEqual(legacy.read_text(), "Not ours\n")
 
 
 if __name__ == "__main__":

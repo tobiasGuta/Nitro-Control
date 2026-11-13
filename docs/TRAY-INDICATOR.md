@@ -201,7 +201,8 @@ bash scripts/enable-tray-autostart-fedora.sh
 ```
 
 This creates **only**
-`~/.config/autostart/io.github.tobiasguta.NitroControl.Tray.desktop`,
+`$XDG_CONFIG_HOME/autostart/io.github.tobiasguta.NitroControl.Tray.desktop`
+(using `~/.config` when no absolute config directory is set),
 pointing at the *per-user* `~/.local/bin/nitro-control --tray` launcher.
 It starts at the **next GNOME login**, not immediately. The script
 refuses root, unknown existing entries and symlink overwrites.

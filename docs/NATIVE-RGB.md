@@ -263,6 +263,10 @@ Expected with the correct staged module: `"backend": "native-wmi"` and
    After success, adjust **physical** brightness with Fn+F9/Fn+F10; do not
    use the editor slider below 100 for native WMI initialization.
 5. Confirm the GUI warning; authorize the dedicated Polkit action.
+
+If a native RGB request fails during module insertion or firmware verification,
+check the physical keyboard. Brightness or some zone colors may have changed
+before the failure. The helper does not attempt automatic firmware rollback.
 6. Inspect the actual keyboard, Fn+F9/Fn+F10, fan RPM values and platform
    profile. **Do not assume a green success message guarantees LEDs lit up.**
 7. Confirm that the one-shot test module is no longer resident:
