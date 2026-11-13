@@ -167,6 +167,7 @@ class NitroWindow(Adw.ApplicationWindow):
         self._rgb_client = RGBClient()
         self._rgb_status = RGBCapability("none", "Unavailable", False, "Not checked")
         self._rgb_hw_busy = False
+        self._rgb_hw_has_result = False
         self._rgb_rendering = False
         self._power = PowerProfileController()
         self._power_state: PowerState | None = None
@@ -892,7 +893,7 @@ class NitroWindow(Adw.ApplicationWindow):
                          "See README for explicit installation.")
         else:
             hw_detail = f"{self._rgb_status.description} available; Apply requires confirmation and authentication"
-        if not self._rgb_hw_busy:
+        if not self._rgb_hw_busy and not self._rgb_hw_has_result:
             self.rgb_hardware_status.set_subtitle(hw_detail)
         self._sync_rgb_hardware_button()
 
@@ -1008,6 +1009,7 @@ class NitroWindow(Adw.ApplicationWindow):
         self._rgb_hw_busy = False
         if self._closed:
             return False
+        self._rgb_hw_has_result = True
         self.rgb_hardware_status.set_subtitle(
             f"Hardware change failed or unverified: {error}" if error else message or "No confirmed software response"
         )

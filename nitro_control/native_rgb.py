@@ -146,21 +146,30 @@ class NativeRGB:
                 raise NativeRGBError(reason)
             colors = ",".join(zone[1:] for zone in plan.zones)
             inserted = False
-            failed = None
             try:
-                outcome = _run(["/usr/sbin/insmod", str(self.module), "apply=1",
-                                f"colors={colors}", f"brightness={plan.brightness}"])
+                try:
+                    outcome = _run(["/usr/sbin/insmod", str(self.module), "apply=1",
+                                    f"colors={colors}", f"brightness={plan.brightness}"])
+                except NativeRGBError as exc:
+                    raise NativeRGBError(f"{exc}. Keyboard lighting may have changed.") from exc
                 inserted = outcome.returncode == 0
                 if not inserted:
-                    failed = f"Native RGB firmware write failed: {outcome.stderr.strip()[:240]}"
+                    detail = outcome.stderr.strip()[:240] or "no module diagnostic"
+                    raise NativeRGBError(
+                        f"Native RGB module insertion failed ({detail}). Keyboard lighting may have changed.")
             finally:
                 # Even a failed kernel module insert must not leave a module behind.
                 if inserted or self.path("sys/module/nitro_rgb_enable_poc").exists():
-                    unload = _run(["/usr/sbin/rmmod", MOD_NAME])
+                    try:
+                        unload = _run(["/usr/sbin/rmmod", MOD_NAME])
+                    except NativeRGBError as exc:
+                        raise NativeRGBError(
+                            f"CRITICAL: could not confirm native RGB module unload ({exc}). "
+                            "Keyboard lighting may have changed. Inspect lsmod.") from exc
                     if unload.returncode != 0:
-                        raise NativeRGBError("CRITICAL: native RGB module could not be unloaded; inspect lsmod")
-            if failed:
-                raise NativeRGBError(failed)
+                        raise NativeRGBError(
+                            "CRITICAL: native RGB module could not be unloaded. "
+                            "Keyboard lighting may have changed. Inspect lsmod.")
             if not self._fans_available() or not self.path("sys/firmware/acpi/platform_profile").is_file():
                 raise NativeRGBError("RGB was applied, but Acer monitoring disappeared; inspect driver state")
             return "Native WMI firmware confirmed four zone color readbacks; verify the keyboard visually"

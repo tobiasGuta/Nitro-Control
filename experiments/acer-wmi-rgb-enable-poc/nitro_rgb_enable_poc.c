@@ -18,6 +18,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/string.h>
+#include <linux/unaligned.h>
 #include <linux/wmi.h>
 
 #define ACER_GAMING_WMI_GUID "7A4DDFE7-5B5D-40B4-8595-4408E0CC7F56"
@@ -108,22 +109,27 @@ static acpi_status nitro_wmi_call_u64(u32 method_id, u64 value, u64 *result)
 
 	status = wmi_evaluate_method(ACER_GAMING_WMI_GUID, 0, method_id,
 				     &input, &output);
-	if (ACPI_FAILURE(status))
-		return status;
+	if (ACPI_FAILURE(status) || !result)
+		goto out;
 
 	obj = output.pointer;
-	if (obj && result) {
-		if (obj->type == ACPI_TYPE_INTEGER) {
-			tmp = obj->integer.value;
-		} else if (obj->type == ACPI_TYPE_BUFFER) {
-			if (obj->buffer.length == sizeof(u32))
-				tmp = *(u32 *)obj->buffer.pointer;
-			else if (obj->buffer.length == sizeof(u64))
-				tmp = *(u64 *)obj->buffer.pointer;
-		}
-		*result = tmp;
+	if (obj && obj->type == ACPI_TYPE_INTEGER) {
+		tmp = obj->integer.value;
+	} else if (obj && obj->type == ACPI_TYPE_BUFFER && obj->buffer.pointer &&
+		   obj->buffer.length == sizeof(u32)) {
+		tmp = get_unaligned_le32(obj->buffer.pointer);
+	} else if (obj && obj->type == ACPI_TYPE_BUFFER && obj->buffer.pointer &&
+		   obj->buffer.length == sizeof(u64)) {
+		tmp = get_unaligned_le64(obj->buffer.pointer);
+	} else if (method_id == ACER_WMID_GET_GAMING_RGB_KB_METHODID) {
+		pr_err("nitro_rgb_enable_poc: method %u returned an unexpected color reply\n",
+		       method_id);
+		status = AE_TYPE;
+		goto out;
 	}
+	*result = tmp;
 
+out:
 	kfree(output.pointer);
 	return status;
 }

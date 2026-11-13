@@ -25,12 +25,19 @@ export PYTHONPATH="$app_dir${PYTHONPATH:+:$PYTHONPATH}"
 exec /usr/bin/python3 -P -m nitro_control "$@"
 WRAPPER
 chmod 755 "$bin_dir/nitro-control"
+desktop_exec="$bin_dir/nitro-control"
+# Escape the executable for both desktop-entry string parsing and Exec parsing.
+desktop_exec=${desktop_exec//\\/\\\\\\\\}
+desktop_exec=${desktop_exec//\"/\\\\\"}
+desktop_exec=${desktop_exec//\$/\\\\\$}
+desktop_exec=${desktop_exec//\`/\\\\\`}
+desktop_exec=${desktop_exec//%/%%}
 cat > "$desktop_dir/io.github.tobiasguta.NitroControl.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=Nitro Control
 Comment=Acer Nitro dashboard and desktop power modes
-Exec=$bin_dir/nitro-control
+Exec="$desktop_exec"
 Icon=utilities-system-monitor
 Terminal=false
 Categories=System;Monitor;GTK;

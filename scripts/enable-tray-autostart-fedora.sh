@@ -7,7 +7,9 @@ if [[ $EUID -eq 0 ]]; then
   exit 1
 fi
 launcher="$HOME/.local/bin/nitro-control"
-dir="$HOME/.config/autostart"
+config_home="${XDG_CONFIG_HOME:-}"
+[[ "$config_home" = /* ]] || config_home="$HOME/.config"
+dir="$config_home/autostart"
 target="$dir/io.github.tobiasguta.NitroControl.Tray.desktop"
 marker="# Managed by Nitro Control optional tray autostart"
 
@@ -25,7 +27,7 @@ if [[ -L "$target" ]]; then
   echo "Autostart file is a symlink; refusing to overwrite." >&2
   exit 1
 fi
-if [[ -e "$target" ]] && ! grep -Fqx -- "$marker" "$target"; then
+if [[ -e "$target" ]] && { [[ ! -f "$target" ]] || ! grep -Fqx -- "$marker" "$target"; }; then
   echo "Unrecognized autostart file; refusing to overwrite $target" >&2
   exit 1
 fi

@@ -242,7 +242,7 @@ class NativeRGBTests(unittest.TestCase):
                     return_value=SimpleNamespace(st_uid=0, st_mode=0o600)),
               patch.object(self.adapter, "_verify_install"),
               patch("nitro_control.native_rgb._run", side_effect=runner)):
-            with self.assertRaisesRegex(NativeRGBError, "firmware refused"):
+            with self.assertRaisesRegex(NativeRGBError, "firmware refused.*lighting may have changed"):
                 self.adapter.apply(COLORS)
 
     def test_rgb_hardware_refuses_unprivileged_native_apply(self):
