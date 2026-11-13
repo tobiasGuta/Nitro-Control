@@ -12,7 +12,11 @@ from gi.repository import Gtk
 
 from .fan_animation import fan_angle_step
 from .fan_presentation import fan_mode_description
+from .keyboard_preview import (
+    DECK_HEIGHT, DECK_WIDTH, KEYS, SPATIAL_EFFECTS, lighting_frame, lighting_gradient, zone_at,
+)
 from .monitor_history import MonitorHistory
+from .rgb import LightingPlan
 
 
 RED = (0.88, 0.13, 0.19)
@@ -173,59 +177,140 @@ class FanDial(Gtk.DrawingArea):
         _text(ctx, fan_mode_description(self._mode).upper(), cx, height - 16, 9,
               (0.54, 0.54, 0.58), center=True)
 
-class RGBZoneStrip(Gtk.DrawingArea):
-    """Four **draft** colors, never a claim about the physical keyboard.
+class KeyboardPreview(Gtk.DrawingArea):
+    """Scalable four-zone artwork driven by the editor's draft settings."""
 
-    This visualization owns no drivers or write APIs. It displays the same
-    validated in-memory palette already used by the existing RGB editor.
-    """
-
-    def __init__(self):
+    def __init__(self, on_zone_selected):
         super().__init__()
-        self._zones: tuple[str, ...] = ("#000000",) * 4
-        self.set_content_width(470)
-        self.set_content_height(112)
+        self._plan = LightingPlan(("#000000",) * 4, 0)
+        self._effect: str | None = None
+        self._color = "#FF475D"
+        self._speed = 4
+        self._playing = False
+        self._elapsed = 0.0
+        self._last_frame = None
+        self._tick_id = 0
+        self._on_zone_selected = on_zone_selected
+        self.set_content_height(242)
         self.set_hexpand(True)
         self.set_draw_func(self._draw)
-        self.set_tooltip_text("Draft RGB colors only; not applied to hardware")
+        self.update_property([Gtk.AccessibleProperty.LABEL], ["Four-zone keyboard preview"])
+        self.connect("map", self._sync_animation)
+        self.connect("unmap", self._sync_animation)
+        click = Gtk.GestureClick.new()
+        click.set_button(1)
+        click.connect("released", self._on_click)
+        self.add_controller(click)
+        self.set_cursor_from_name("pointer")
 
-    def update_zones(self, zones: tuple[str, ...]) -> None:
-        import re
-        if len(zones) != 4 or any(
-            re.fullmatch(r"#[0-9A-Fa-f]{6}", zone) is None for zone in zones
-        ):
-            raise ValueError("Expected four validated RGB hex colors")
-        self._zones = zones
-        self.set_tooltip_text(
-            "Unapplied draft colors: " + ", ".join(zones))
+    def update_lighting(self, plan: LightingPlan, *, effect: str | None = None,
+                        color: str = "#FF475D", speed: int = 4, playing: bool = False):
+        if self._effect != effect:
+            self._elapsed = 0.0
+        self._plan, self._effect, self._color = plan, effect, color
+        self._speed, self._playing = speed, playing
+        self.set_cursor_from_name("pointer" if effect is None else None)
+        self._sync_animation()
         self.queue_draw()
 
+    def _sync_animation(self, *_args):
+        if self._playing and self.get_mapped():
+            if not self._tick_id:
+                self._tick_id = self.add_tick_callback(self._on_tick)
+        elif self._tick_id:
+            self.remove_tick_callback(self._tick_id)
+            self._tick_id = 0
+            self._last_frame = None
+
+    def _on_tick(self, _widget, clock):
+        now = clock.get_frame_time()
+        if self._last_frame is None:
+            self._last_frame = now
+        elif now - self._last_frame >= 30_000:
+            self._elapsed += (now - self._last_frame) / 1_000_000
+            self._last_frame = now
+            self.queue_draw()
+        return True
+
+    @staticmethod
+    def _geometry(width: int, height: int) -> tuple[float, float, float]:
+        scale = max(1, min((width - 44) / DECK_WIDTH, (height - 38) / DECK_HEIGHT))
+        return (width - DECK_WIDTH * scale) / 2, (height - DECK_HEIGHT * scale) / 2, scale
+
+    def _on_click(self, _gesture, _count, x, y):
+        if self._effect is None:
+            left, top, scale = self._geometry(self.get_width(), self.get_height())
+            zone = zone_at((x - left) / scale, (y - top) / scale)
+            if zone is not None:
+                self._on_zone_selected(zone)
+
     def _draw(self, _area, ctx, width, height):
-        ctx.set_source_rgb(0.047, 0.048, 0.058)
-        ctx.paint()
-        left, right = 17, max(width - 17, 18)
-        gap = 7
-        zone_width = max(1, (right - left - gap * 3) / 4)
-        for i, value in enumerate(self._zones):
-            r, g, b = (int(value[j:j + 2], 16) / 255 for j in (1, 3, 5))
-            x = left + i * (zone_width + gap)
-            # Original beveled key-zone tile, not a hardware top-view model.
-            ctx.move_to(x + 6, 24)
-            ctx.line_to(x + zone_width - 3, 24)
-            ctx.line_to(x + zone_width, 28)
-            ctx.line_to(x + zone_width - 5, 73)
-            ctx.line_to(x + 4, 73)
-            ctx.line_to(x, 68)
-            ctx.close_path()
-            ctx.set_source_rgb(r, g, b)
+        left, top, scale = self._geometry(width, height)
+        # The keyboard deck and keycaps are drawn independently of the lighting.
+        ctx.translate(left, top)
+        ctx.scale(scale, scale)
+        ctx.rectangle(-0.42, -0.38, DECK_WIDTH + 0.84, DECK_HEIGHT + 0.76)
+        ctx.set_source_rgb(0.045, 0.046, 0.056)
+        ctx.fill_preserve()
+        ctx.set_source_rgb(0.25, 0.25, 0.29)
+        ctx.set_line_width(0.035)
+        ctx.stroke()
+
+        for x, y, w, h, label in KEYS:
+            ctx.rectangle(x, y, w, h)
+            ctx.set_source_rgb(0.095, 0.096, 0.112)
             ctx.fill_preserve()
-            ctx.set_line_width(1.2)
-            ctx.set_source_rgba(1, 1, 1, 0.30)
+            ctx.set_source_rgb(0.24, 0.25, 0.28)
+            ctx.set_line_width(0.035)
             ctx.stroke()
-            _text(ctx, f"ZONE {i + 1}", x + zone_width / 2, 94, 10,
-                  (0.70, 0.70, 0.75), center=True, bold=True)
-        _text(ctx, "DRAFT PALETTE · NOT APPLIED TO KEYBOARD",
-              left + 1, 15, 10, (0.70, 0.70, 0.75))
+            if label and scale >= 21:
+                _text(ctx, label, x + w / 2, y + h * 0.59,
+                      0.23, (0.68, 0.68, 0.73), center=True)
+
+        if not self._plan.brightness:
+            return
+
+        if self._effect in SPATIAL_EFFECTS:
+            colors = lighting_gradient(self._effect, self._plan.brightness,
+                                       color=self._color, speed=self._speed, elapsed=self._elapsed)
+            for x, y, w, h, _label in KEYS:
+                ctx.rectangle(x, y, w, h)
+            self._paint_lighting(ctx, colors)
+            return
+
+        colors = lighting_frame(self._plan.zones, self._plan.brightness,
+                                effect=self._effect, color=self._color, speed=self._speed,
+                                elapsed=self._elapsed)
+        zone_width = DECK_WIDTH / 4
+        for zone, color in enumerate(colors):
+            if not any(color):
+                continue
+            ctx.save()
+            ctx.rectangle(zone * zone_width, -0.16, zone_width, DECK_HEIGHT + 0.32)
+            ctx.clip()
+            for x, y, w, h, _label in KEYS:
+                if x + w < zone * zone_width or x >= (zone + 1) * zone_width:
+                    continue
+                ctx.rectangle(x, y, w, h)
+                self._paint_lighting(ctx, (color,))
+            ctx.restore()
+
+    @staticmethod
+    def _paint_lighting(ctx, colors):
+        for alpha, line_width in ((0.12, 0), (0.25, 0.13), (0.95, 0.049)):
+            if len(colors) == 1:
+                _color(ctx, colors[0], alpha)
+            else:
+                gradient = cairo.LinearGradient(0, 0, DECK_WIDTH, 0)
+                for index, color in enumerate(colors):
+                    gradient.add_color_stop_rgba(index / (len(colors) - 1), *color, alpha)
+                ctx.set_source(gradient)
+            if line_width:
+                ctx.set_line_width(line_width)
+                ctx.stroke_preserve()
+            else:
+                ctx.fill_preserve()
+        ctx.new_path()
 
 
 class TelemetryGraph(Gtk.DrawingArea):

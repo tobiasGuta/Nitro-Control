@@ -111,24 +111,27 @@ class DashboardSafetyContracts(unittest.TestCase):
         self.assertIn("return section(title, body)", source)
         for heading in ("Graphics", "Performance", "Cooling",
                         "Temperature sensors", "RGB hardware status",
-                        "Four-zone RGB studio"):
+                        "Keyboard preview"):
             self.assertIn(f'\"{heading}\"', source)
         self.assertIn("hardware_content.append(_panel_group(", source)
-        self.assertIn("lighting_content.append(_panel_group(", source)
+        self.assertIn('content.append(section("Keyboard preview", preview_panel))', source)
 
-    def test_color_strip_is_draft_only_and_rgb_guard_remains_in_place(self):
+    def test_keyboard_preview_is_draft_only_and_rgb_guard_remains_in_place(self):
         source = (ROOT / "nitro_control" / "ui.py").read_text()
         visual = (ROOT / "nitro_control" / "dashboard_visuals.py").read_text()
-        self.assertIn("class RGBZoneStrip(Gtk.DrawingArea):", visual)
-        self.assertIn("DRAFT PALETTE · NOT APPLIED TO KEYBOARD", visual)
-        self.assertIn("self.rgb_strip = RGBZoneStrip()", source)
-        self.assertIn("self.rgb_strip.update_zones(plan.zones)", source)
+        self.assertIn("class KeyboardPreview(Gtk.DrawingArea):", visual)
+        self.assertIn("self.rgb_keyboard.update_lighting(self._rgb_draft())", source)
+        self.assertIn('self.rgb_modes.add_titled(static, "static", "Static")', source)
+        self.assertIn('self.rgb_modes.add_titled(dynamic, "dynamic", "Dynamic")', source)
+        for method in ("_request_rgb_hardware", "_confirm_rgb_hardware"):
+            body = source.split(f"    def {method}", 1)[1].split("    def ", 1)[0]
+            self.assertIn('self.rgb_modes.get_visible_child_name() != "static"', body)
         self.assertIn("self.rgb_native_hint.set_visible(native and not supported_brightness)", source)
         self.assertIn("supported_brightness = not native or self._rgb_draft().brightness == 100", source)
         self.assertIn("self._rgb_client.apply(plan)", source)
         self.assertIn("self._confirm_rgb_hardware", source)
         # The custom paint code never invokes the privileged write path.
-        rgb_section = visual.split("class RGBZoneStrip", 1)[1].split("class TelemetryGraph", 1)[0]
+        rgb_section = visual.split("class KeyboardPreview", 1)[1].split("class TelemetryGraph", 1)[0]
         for unsafe in ("subprocess", "pkexec", "insmod", "modprobe", "pwm", "self._rgb_client"):
             self.assertNotIn(unsafe, rgb_section)
 
