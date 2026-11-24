@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="Nitro Control indicator">
+  <g fill="#2e3436">
+    <!-- Open performance gauge arc -->
+    <path d="M 8 1 A 7 7 0 0 0 2.7 12.6 L 3.9 11.4 A 5.3 5.3 0 1 1 12.1 11.4 L 13.3 12.6 A 7 7 0 0 0 8 1 Z"/>
+    <!-- Centered geometric N emblem -->
+    <path d="M 5.2 11.8 V 5.2 L 6.8 4.4 L 9.2 8.2 V 4.4 L 10.8 5.2 V 11.8 L 9.2 12.6 L 6.8 8.8 V 12.6 Z"/>
+  </g>
+</svg>

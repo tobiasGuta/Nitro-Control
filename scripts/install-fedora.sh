@@ -10,10 +10,17 @@ fi
 app_dir="$HOME/.local/share/nitro-control"
 bin_dir="$HOME/.local/bin"
 desktop_dir="$HOME/.local/share/applications"
-mkdir -p "$app_dir" "$bin_dir" "$desktop_dir"
+icon_dir="$HOME/.local/share/icons/hicolor/scalable/apps"
+symbolic_icon_dir="$HOME/.local/share/icons/hicolor/symbolic/apps"
+mkdir -p "$app_dir" "$bin_dir" "$desktop_dir" "$icon_dir" "$symbolic_icon_dir"
 rm -rf "$app_dir/nitro_control"
 cp -R nitro_control "$app_dir/nitro_control"
 find "$app_dir/nitro_control" -type d -name __pycache__ -prune -exec rm -rf '{}' +
+install -m 644 nitro_control/icons/hicolor/scalable/apps/io.github.tobiasguta.NitroControl.svg "$icon_dir/io.github.tobiasguta.NitroControl.svg"
+install -m 644 nitro_control/icons/hicolor/symbolic/apps/io.github.tobiasguta.NitroControl-symbolic.svg "$symbolic_icon_dir/io.github.tobiasguta.NitroControl-symbolic.svg"
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f -t -q "$HOME/.local/share/icons/hicolor" || true
+fi
 cat > "$bin_dir/nitro-control" <<'WRAPPER'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -31,11 +38,14 @@ Type=Application
 Name=Nitro Control
 Comment=Acer Nitro dashboard and desktop power modes
 Exec=$bin_dir/nitro-control
-Icon=utilities-system-monitor
+Icon=io.github.tobiasguta.NitroControl
 Terminal=false
 Categories=System;Monitor;GTK;
 StartupNotify=true
 DESKTOP
 chmod 644 "$desktop_dir/io.github.tobiasguta.NitroControl.desktop"
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database -q "$desktop_dir" || true
+fi
 echo 'Installed Nitro Control for this user.'
 echo 'Launch from GNOME applications or run: ~/.local/bin/nitro-control'

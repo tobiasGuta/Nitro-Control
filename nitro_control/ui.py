@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from threading import Thread
 
 import gi
@@ -1374,9 +1375,13 @@ class NitroApplication(Adw.Application):
             self.get_style_manager().set_color_scheme(Adw.ColorScheme.FORCE_DARK)
             display = Gdk.Display.get_default()
             if display is not None:
+                local_icons = Path(__file__).resolve().parent / "icons"
+                if local_icons.is_dir():
+                    Gtk.IconTheme.get_for_display(display).add_search_path(str(local_icons))
                 provider = Gtk.CssProvider()
                 provider.load_from_data(CSS.encode("utf-8"))
                 Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+            Gtk.Window.set_default_icon_name(APP_ID)
             window = NitroWindow(self, demo=self.demo)
         window.present()
 
