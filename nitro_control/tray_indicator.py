@@ -22,6 +22,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("AyatanaAppIndicator3", "0.1")
 from gi.repository import AyatanaAppIndicator3 as AppIndicator3, GLib, Gtk
 
+from . import APP_ID
 from .hardware import HardwareReader
 from .tray_model import TrayReadout, format_tray_snapshot
 
@@ -82,7 +83,7 @@ class TrayIndicator:
         self._busy = False
         self._closed = False
         self._indicator = AppIndicator3.Indicator.new(
-            "nitro-control", "utilities-system-monitor",
+            "nitro-control", f"{APP_ID}-symbolic",
             AppIndicator3.IndicatorCategory.HARDWARE,
         )
         self._indicator.set_title("Nitro Control · read-only hardware monitor")
