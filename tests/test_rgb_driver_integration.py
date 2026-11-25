@@ -24,9 +24,12 @@ class DriverIntegrationContracts(unittest.TestCase):
         self.assertNotIn('make install', source)
 
     def test_module_pinned_to_running_kernel_and_digest(self):
-        source = INSTALL.read_text() + CONTROLLER.read_text()
-        self.assertIn('KERNEL="$(uname -r)"', source)
-        self.assertIn('extra/nitro-control/linuwu_sense.ko', source)
+        staging_py = (ROOT.parent / 'nitro_control' / 'module_staging.py').read_text()
+        source = INSTALL.read_text() + CONTROLLER.read_text() + staging_py
+        self.assertIn('KERNEL="$(uname -r)"', INSTALL.read_text() + CONTROLLER.read_text())
+        self.assertIn('/usr/local/lib/nitro-control/modules/$KERNEL/linuwu_sense.ko', CONTROLLER.read_text())
+        self.assertIn("DEST_DIR=\"$PRIVATE_BASE/modules/$KERNEL\"", INSTALL.read_text())
+        self.assertIn('# Managed by Nitro Control;', CONTROLLER.read_text())
         self.assertIn('sha256sum', source)
         self.assertIn('modinfo -F vermagic', source)
 
@@ -48,10 +51,10 @@ class DriverIntegrationContracts(unittest.TestCase):
         self.assertNotIn('platform_profile=', source)
 
     def test_uninstall_refuses_when_replacement_loaded(self):
-        source = UNINSTALL.read_text()
-        self.assertIn("grep -q '^linuwu_sense ' /proc/modules", source)
-        self.assertIn('systemctl stop', source)
-        self.assertIn('modprobe acer_wmi', source)
+        source = UNINSTALL.read_text() + (ROOT.parent / 'nitro_control' / 'module_staging.py').read_text()
+        self.assertIn("grep -q '^linuwu_sense ' /proc/modules", UNINSTALL.read_text())
+        self.assertIn('"stop"', source)
+        self.assertIn('"acer_wmi"', source)
 
 
 if __name__ == '__main__':

@@ -13,11 +13,16 @@ from gi.repository import Gtk
 from .fan_animation import fan_angle_step
 from .fan_presentation import fan_mode_description
 from .keyboard_preview import (
-    DECK_HEIGHT, DECK_WIDTH, KEYS, SPATIAL_EFFECTS, lighting_frame, lighting_gradient, zone_at,
+    DECK_HEIGHT,
+    DECK_WIDTH,
+    KEYS,
+    SPATIAL_EFFECTS,
+    lighting_frame,
+    lighting_gradient,
+    zone_at,
 )
 from .monitor_history import MonitorHistory
 from .rgb import LightingPlan
-
 
 RED = (0.88, 0.13, 0.19)
 ORANGE = (0.99, 0.50, 0.12)
@@ -341,40 +346,26 @@ class TelemetryGraph(Gtk.DrawingArea):
             self.set_tooltip_text(f"{self.title}: {detail}; recent real readings")
         self.queue_draw()
 
-    def _plot(self, ctx, values: tuple[float | None, ...], start: float,
-              end: float, top: float, bottom: float, left: float, right: float,
+    def _plot(self, ctx, field: str, start: float, end: float,
+              top: float, bottom: float, left: float, right: float,
               rgb: tuple[float, float, float]):
-        if not values:
-            return
-        count = len(values)
-        last = False
-        ctx.new_path()
-        for index, value in enumerate(values):
-            if value is None:
-                if last:
-                    _color(ctx, rgb, 0.96)
-                    ctx.set_line_width(2)
-                    ctx.stroke()
-                last = False
-                ctx.new_path()
+        _color(ctx, rgb, 0.96)
+        ctx.set_line_width(2)
+        for segment in self.history.segments(field):
+            points = [
+                (left + fraction * (right - left),
+                 bottom - (value - start) / (end - start) * (bottom - top))
+                for fraction, value in segment
+            ]
+            x, y = points[0]
+            if len(points) == 1:
+                ctx.arc(x, y, 2.5, 0, math.tau)
+                ctx.fill()
                 continue
-            x = left + (index / max(count - 1, 1)) * (right - left)
-            y = bottom - (value - start) / max(end - start, 1) * (bottom - top)
-            if last:
+            ctx.move_to(x, y)
+            for x, y in points[1:]:
                 ctx.line_to(x, y)
-            else:
-                ctx.move_to(x, y)
-            last = True
-        if last:
-            _color(ctx, rgb, 0.96)
-            ctx.set_line_width(2)
             ctx.stroke()
-        # A single sample has no segment; draw an actual point.
-        if count == 1 and values[0] is not None:
-            x, y = left, bottom - (values[0] - start) / max(end - start, 1) * (bottom - top)
-            ctx.arc(x, y, 2.5, 0, 2 * math.pi)
-            _color(ctx, rgb)
-            ctx.fill()
 
     def _draw(self, _area, ctx, width, height):
         left, right = 44, max(44, width - 108)
@@ -406,7 +397,7 @@ class TelemetryGraph(Gtk.DrawingArea):
             hi = math.ceil((max(available) + 5) / 5) * 5
             if hi <= lo:
                 hi = lo + 10
-            self._plot(ctx, series, lo, hi, top, bottom, left, right, RED)
+            self._plot(ctx, self.field, lo, hi, top, bottom, left, right, RED)
             _text(ctx, f"MIN {min(available):.0f}°  MAX {max(available):.0f}°",
                   right - 132, 21, 10, (0.58, 0.58, 0.62))
             _text(ctx, f"{hi:.0f}°", left + 2, top + 14, 10, (0.57, 0.57, 0.59))
@@ -421,7 +412,7 @@ class TelemetryGraph(Gtk.DrawingArea):
         if self.extra:
             secondary = self.history.series(self.extra)
             if any(v is not None for v in secondary):
-                self._plot(ctx, secondary, 0, 100, top, bottom, left, right, ORANGE)
+                self._plot(ctx, self.extra, 0, 100, top, bottom, left, right, ORANGE)
                 last = secondary[-1]
                 if last is not None:
                     _text(ctx, f"{last:.0f}%", right + 14, top + 77, 19, ORANGE)

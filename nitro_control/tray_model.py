@@ -9,8 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
-from .fan_presentation import fan_display_name
-from .models import Snapshot
+from .fan_presentation import dashboard_fan_slots, fan_display_name
+from .models import Fan, Snapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,18 +34,21 @@ def _rpm(value: int | None) -> str:
     return f"{value:,} RPM"
 
 
+def _format_fan(model: str, fan: Fan | None, fallback_label: str) -> str:
+    if fan is None:
+        return f"{fallback_label}: Unavailable"
+    display = fan_display_name(model, fan.name)
+    caption = {"CPU Fan": "CPU fan", "GPU Fan": "GPU fan"}.get(display, display)
+    return f"{caption}: {_rpm(fan.rpm)}"
+
+
 def format_tray_snapshot(snapshot: Snapshot) -> TrayReadout:
     """Show reported channels only; never infer a missing fan or sensor."""
-    fans = {
-        fan_display_name(snapshot.model, fan.name): fan.rpm
-        for fan in snapshot.fans
-    }
+    slot1, slot2 = dashboard_fan_slots(snapshot.fans)
     return TrayReadout(
         cpu_temp=f"CPU temperature: {_temp(snapshot.cpu_celsius)}",
         gpu_temp=f"GPU temperature: {_temp(snapshot.gpu.celsius if snapshot.gpu else None)}",
-        cpu_fan=f"CPU fan: {_rpm(fans.get('CPU Fan'))}" if "CPU Fan" in fans
-                else f"Fan 1: {_rpm(fans.get('Fan 1'))}",
-        gpu_fan=f"GPU fan: {_rpm(fans.get('GPU Fan'))}" if "GPU Fan" in fans
-                else f"Fan 2: {_rpm(fans.get('Fan 2'))}",
+        cpu_fan=_format_fan(snapshot.model, slot1, "Fan 1"),
+        gpu_fan=_format_fan(snapshot.model, slot2, "Fan 2"),
         updated=f"Last reading: {snapshot.sampled_at}",
     )

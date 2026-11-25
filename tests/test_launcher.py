@@ -1,70 +1,46 @@
 """Offline launcher regression checks; no GTK, drivers or firmware writes."""
 from __future__ import annotations
 
-import os
-from pathlib import Path
-import re
 import subprocess
-import tempfile
+import sys
 import unittest
+from contextlib import redirect_stderr
+from io import StringIO
+from pathlib import Path
+from unittest.mock import patch
 
+from nitro_control.__main__ import main
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER = ROOT / "scripts" / "install-fedora.sh"
 
 
-def installed_wrapper() -> str:
-    """Test the *actual generated wrapper* rather than a reimplementation."""
-    source = INSTALLER.read_text(encoding="utf-8")
-    match = re.search(
-        r"""cat > "\$bin_dir/nitro-control" <<'WRAPPER'\n(.*?)\nWRAPPER""",
-        source, re.DOTALL,
-    )
-    if not match:
-        raise AssertionError("Unable to extract installer-generated launcher")
-    return match.group(1) + "\n"
-
-
 class LauncherTests(unittest.TestCase):
+    def test_demo_refuses_live_rgb_probe(self):
+        with (patch("nitro_control.rgb_hardware.RGBHardware.probe") as probe,
+              redirect_stderr(StringIO()) as stderr, self.assertRaises(SystemExit) as raised):
+            main(["--demo", "--rgb-probe"])
+        self.assertEqual(raised.exception.code, 2)
+        probe.assert_not_called()
+        self.assertIn("live RGB probe", stderr.getvalue())
+
+    def test_incomplete_pygobject_reports_missing_gui_dependencies(self):
+        # A namespace directory left by an older interpreter can import as
+        # "gi" without exporting any PyGObject API.
+        command = (
+            "import sys, types; sys.modules['gi'] = types.ModuleType('gi'); "
+            "from nitro_control.__main__ import main; raise SystemExit(main(sys.argv[1:]))"
+        )
+        for mode, diagnostic in (("--demo", "GTK4"), ("--tray", "Tray unavailable")):
+            with self.subTest(mode=mode):
+                result = subprocess.run([sys.executable, "-c", command, mode], cwd=ROOT,
+                                        capture_output=True, text=True, timeout=10, check=False)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(diagnostic, result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+
     def test_installer_shell_syntax(self):
         subprocess.run(["bash", "-n", str(INSTALLER)], check=True)
-
-    def test_installed_package_wins_over_older_checkout_and_pythonpath(self):
-        # The original bug manifested when launching `python -m nitro_control`
-        # from inside a checkout that contained an older nitro_control package.
-        with tempfile.TemporaryDirectory() as temp:
-            tmp = Path(temp)
-            home = tmp / "home"
-            installed = home / ".local/share/nitro-control/nitro_control"
-            stale_root = tmp / "old-experimental-checkout"
-            stale = stale_root / "nitro_control"
-            for target, marker in ((installed, "installed-preview"),
-                                   (stale, "stale-experimental")):
-                target.mkdir(parents=True)
-                (target / "__init__.py").write_text(
-                    f"MARKER = {marker!r}\n", encoding="utf-8")
-                (target / "__main__.py").write_text(
-                    "from . import MARKER\n"
-                    "import sys\n"
-                    "print(MARKER + ':' + ','.join(sys.argv[1:]))\n",
-                    encoding="utf-8")
-
-            wrapper = tmp / "nitro-control"
-            wrapper.write_text(installed_wrapper(), encoding="utf-8")
-            env = dict(os.environ)
-            env["HOME"] = str(home)
-            env["PYTHONPATH"] = str(stale_root)
-
-            for cwd in (stale_root, home):
-                with self.subTest(cwd=cwd):
-                    process = subprocess.run(
-                        ["bash", str(wrapper), "--rgb-probe"],
-                        cwd=cwd, env=env, capture_output=True, text=True,
-                        check=False, timeout=15,
-                    )
-                    self.assertEqual(process.returncode, 0, process.stderr)
-                    self.assertEqual(
-                        process.stdout.strip(), "installed-preview:--rgb-probe")
 
 
 if __name__ == "__main__":

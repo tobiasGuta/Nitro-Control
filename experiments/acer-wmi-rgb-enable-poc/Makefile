@@ -1,5 +1,9 @@
 obj-m += nitro_rgb_enable_poc.o
 
+ifeq ($(EXPERIMENTAL),1)
+ccflags-y += -DNITRO_ENABLE_EXPERIMENTAL_PARAMS=1
+endif
+
 KDIR ?= /lib/modules/$(shell uname -r)/build
 PWD  := $(shell pwd)
 

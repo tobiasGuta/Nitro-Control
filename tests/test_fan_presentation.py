@@ -3,7 +3,13 @@ from __future__ import annotations
 
 import unittest
 
-from nitro_control.fan_presentation import fan_display_name, fan_mode_description
+from nitro_control.fan_presentation import (
+    dashboard_fan_slots,
+    fan_channel,
+    fan_display_name,
+    fan_mode_description,
+)
+from nitro_control.models import Fan
 
 
 class FanPresentationTests(unittest.TestCase):
@@ -37,6 +43,25 @@ class FanPresentationTests(unittest.TestCase):
         self.assertEqual(fan_mode_description("Manual"), "Manual")
         self.assertEqual(fan_mode_description("Full speed / control disabled"),
                          "Full speed / control disabled")
+
+    def test_dashboard_fan_slots_align_by_channel_and_preserve_labels(self):
+        fan2_only = (Fan("Fan 2", 3157, "Automatic", channel=2),)
+        self.assertEqual(dashboard_fan_slots(fan2_only), (None, fan2_only[0]))
+
+        reordered = (
+            Fan("Fan 10", 9000, "Automatic", channel=10),
+            Fan("Aux Blower", 3100, "Automatic", channel=2),
+            Fan("Main Blower", 2200, "Manual", channel=1),
+        )
+        slot1, slot2 = dashboard_fan_slots(reordered)
+        self.assertEqual(slot1, reordered[2])
+        self.assertEqual(slot2, reordered[1])
+        self.assertEqual(fan_display_name("Nitro AN515-58", slot1.name), "Main Blower")
+        self.assertEqual(fan_display_name("Nitro AN515-58", slot2.name), "Aux Blower")
+
+        unidentified = (Fan("Chassis Blower", 1500, "Unknown"),)
+        self.assertIsNone(fan_channel(unidentified[0]))
+        self.assertEqual(dashboard_fan_slots(unidentified), (None, None))
 
 
 if __name__ == "__main__":

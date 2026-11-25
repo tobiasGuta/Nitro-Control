@@ -177,7 +177,7 @@ The initial reference machine is Acer Nitro AN515-58, Fedora 44, GNOME Wayland, 
 Install the native libraries (no `pip` or privileged application process needed):
 
 ```bash
-sudo dnf install python3-gobject gtk4 libadwaita
+sudo dnf install python3-gobject python3-cairo gtk4 libadwaita
 ```
 
 From the project directory:
@@ -192,7 +192,7 @@ The built-in demo values are **examples, not readings from your device**. If `nv
 
 ### Upgrade an existing installation
 
-The installer copies source into the per-user application directory. After pulling the new version, rerun it and relaunch the window:
+The installer stages a complete per-user release before switching the launcher. After pulling the new version, rerun it and relaunch the window:
 
 ```bash
 git pull --ff-only
@@ -207,9 +207,9 @@ From the project directory:
 ./scripts/install-fedora.sh
 ```
 
-This installs a *per-user copy* into `~/.local/share/nitro-control`, a launcher under `~/.local/bin`, and a `.desktop` file. No `sudo` is needed for the installation script once the native libraries above are present. Open **Nitro Control** from the GNOME app grid, or run `~/.local/bin/nitro-control`. The launcher uses the installed application directory rather than the caller's current directory, so invoking it from an older Git checkout cannot accidentally import that checkout's outdated Python package. Existing users should rerun `./scripts/install-fedora.sh` from updated `main` to receive the launcher fix; this does not reinstall kernel modules or change RGB firmware.
+This installs a per-user release under `~/.local/share/nitro-control`, with a launcher under `~/.local/bin` and desktop entries for Live and Demo. Open **Nitro Control** from the GNOME app grid, or run `~/.local/bin/nitro-control`. The launcher uses the selected installed release even when invoked from a different checkout.
 
-Remove only these installed copies with `./scripts/uninstall.sh`. This does not remove your source checkout or dependencies.
+Use `./scripts/uninstall.sh` to remove managed application files and the managed tray login entry. User preferences and locally modified or unrelated files are preserved. Installation does not opt in to tray autostart. See [Phase 6 deployment notes](docs/PHASE-6.md) for reinstall, rollback, and removal behavior.
 
 ## Tests
 
@@ -217,11 +217,11 @@ The collector and JSON mode use only the Python standard library; GTK is importe
 
 ```bash
 python3 -m unittest discover -s tests -v
-python3 -m compileall -q nitro_control tests
+python3 -m compileall -q nitro_control scripts tests
 python3 -m nitro_control --demo --once
 ```
 
-Tests use a disposable simulated sysfs tree shaped like the AN515-58, plus an injected fake power-profile service. They cover Acer fans and temperatures, NVIDIA CLI parsing and failures, firmware choices, WMI suffixes, driver binding, read-only monitoring, allowed desktop modes, denied changes, and verification of service-reported results. GUI rendering and live D-Bus/Polkit behavior require a Fedora/GNOME environment; CI does not claim to test the GNOME window or change a real power mode.
+Tests use a disposable simulated sysfs tree shaped like the AN515-58, plus an injected fake power-profile service. They cover Acer fans and temperatures, NVIDIA CLI parsing and failures, firmware choices, WMI suffixes, driver binding, read-only monitoring, allowed desktop modes, denied changes, and verification of service-reported results. The desktop release gate runs real GTK4 and GTK3 widgets in private D-Bus sessions with mock hardware. Separate gates exercise the C harness, disposable module builds, and isolated module lifecycle. A live GNOME tray, PolicyKit prompts, and physical hardware behavior require the [manual AN515-58 checklist](docs/HARDWARE-QUALIFICATION.md). See the [Phase 7 qualification report](docs/PHASE-7.md) for results and release status.
 
 ## Safety and privacy
 

@@ -175,11 +175,11 @@ RGBClient -> pkexec /usr/local/libexec/nitro-control-rgb-helper
     | fixed root-owned Python copy; validated JSON, model, WMI and Acer fans
     | sha256 + owner/mode + modinfo + running-kernel checks
     v
-insmod /usr/lib/modules/$(uname -r)/extra/nitro-control/nitro_rgb_enable_poc.ko
+insmod /usr/local/lib/nitro-control/modules/$(uname -r)/nitro_rgb_enable_poc.ko
        apply=1 colors=RRGGBB,RRGGBB,RRGGBB,RRGGBB brightness=100
-    | one-shot WMI 5 / 2 / 20 / 6, then method-7 firmware readback
+    | one-shot WMI 5 / 2 / 20 / 6, then method-7/21 firmware readback
     v
-rmmod nitro_rgb_enable_poc    (always attempted)
+rmmod nitro_rgb_enable_poc    (conditional: when inserted or sysfs entry exists)
     | verify Acer fan telemetry/profile still exist; report outcome
     v
 GUI status + REQUIRED physical keyboard inspection
@@ -223,7 +223,11 @@ uname -r
 ```
 
 Expect the name `nitro_rgb_enable_poc` and an exact running-kernel match for
-the first `vermagic` field. **Do not use `make install`.**
+the first `vermagic` field. **Do not use `make install`.** Default `make`
+builds only the production parameter set (`probe`, `apply`, `colors`,
+`brightness`, `full_test`, `effect_mode`, `effect_speed`, `effect_rgb`);
+diagnostic parameters (`backlight_test`, `red_test`, `enable`, `effect_test`)
+are compiled out unless `make EXPERIMENTAL=1` is passed explicitly.
 
 Install a **copy** under a fixed, root-owned kernel-pinned location. This
 installer does not insert the module:
@@ -296,12 +300,36 @@ Run it only with its current-kernel-built PoC, stock `acer_wmi`, no Linuwu,
 and the original safety preconditions. After a kernel update, rebuild first.
 It is NOT a routine boot service.
 
-Remove only the new native module/digest using:
+Remove all Nitro-managed native module/digest pairs (both current private
+staging under `/usr/local/lib/nitro-control/modules/` and any legacy
+`/usr/lib/modules/*/extra/nitro-control/` files, refreshing `depmod` where
+legacy indexes existed) using:
 
 ```bash
 cd /mnt/Development/Tools/Nitro-Control
 sudo ./scripts/uninstall-native-rgb-fedora.sh
 ```
+
+To migrate an older unmanifested `/usr/lib/modules/*/extra/nitro-control/` native
+module installation after verifying those files belong to Nitro Control, close
+Nitro Control, ensure no `pkexec` helper or legacy service process is active
+(pre-Phase-2 helpers use a different lock path and staging directory, even
+though Static JSON schemas remain compatible), and pass `--adopt-legacy`:
+
+```bash
+cd /mnt/Development/Tools/Nitro-Control
+systemctl is-active nitro-control-rgb-driver.service || true
+lsmod | grep -E '^(linuwu_sense|nitro_rgb_enable_poc)' || true
+sudo ./scripts/install-native-rgb-fedora.sh --adopt-legacy \
+  /mnt/Development/Tools/Nitro-Control/experiments/acer-wmi-rgb-enable-poc/nitro_rgb_enable_poc.ko
+sudo ./scripts/install-rgb-helper-fedora.sh
+```
+
+Existing pre-migration helpers no longer find `/usr/lib/modules/.../extra/nitro-control/`
+and fail closed until `install-rgb-helper-fedora.sh` is reinstalled from the
+same checkout. Rolling back an older checkout does not restore indexed staging
+under `/usr/lib/modules/`. Use `sudo ./scripts/uninstall-native-rgb-fedora.sh --adopt-legacy`
+to remove verified unmanifested legacy files cleanly.
 
 To remove the independent Polkit helper as well:
 
@@ -675,6 +703,76 @@ survives pre-login GDM and login normally.**
 boot autoload disabled. There is no guarantee that a new kernel will be
 compatible. Revisit the startup design only if a real, repeatable failure
 is observed and reviewed.
+
+## Parameter gating, firmware verification, and upgrade path
+
+- **Default vs. `EXPERIMENTAL=1` builds**: Default `make` omits
+  `backlight_test`, `red_test`, `enable`, and `effect_test`
+  (`NITRO_ENABLE_EXPERIMENTAL_PARAMS` undefined). Only an explicit
+  `make EXPERIMENTAL=1` exposes those standalone diagnostic parameters.
+  `restore-after-boot.sh` uses `full_test=1` and `probe=1` and remains
+  compatible with default production builds.
+- **Upgrading or removing Phase 2 experimental binaries**: Installer staging,
+  unprivileged readiness checks, and privileged runtime verification all inspect
+  `modinfo -p` and reject any `nitro_rgb_enable_poc.ko` exposing
+  `backlight_test`, `red_test`, `enable`, or `effect_test` (even when the file's
+  digest matches an already-staged copy). To upgrade from a Phase 2 build,
+  rebuild with plain `make clean && make` and re-run
+  `sudo ./scripts/install-native-rgb-fedora.sh <path-to-.ko>`, or remove the
+  old binary with `sudo ./scripts/uninstall-native-rgb-fedora.sh`. Unrelated
+  older kernels that still hold an older privately staged experimental module
+  are flagged by notice and rejected if booted into, without deleting their
+  files automatically.
+- **Helper provenance and compatibility**: `install-rgb-helper-fedora.sh`
+  (and `uninstall-rgb-helper-fedora.sh`) acquire `/run/nitro-control/rgb-helper.lock`,
+  verify root-owned non-symlink paths, use a helper transaction marker
+  (`.tx.rgb-helper.json`) for crash recovery, verify SHA-256 digests before
+  overwriting or removing manifested files (refusing to discard locally
+  modified manifested files even with `--adopt-legacy`), remove only
+  cryptographically hash-verified or exact-bytecode-matched Nitro-owned `.pyc`
+  caches (preserving foreign-magic or ambiguous `.pyc` files while launching
+  with `#!/usr/bin/python3 -IB`, `sys.implementation.cache_tag = None`, and
+  `sys.dont_write_bytecode = True` so retained caches are never loaded), adopt
+  verified unmanifested Nitro generations via `--adopt-legacy` while preserving
+  foreign or unrelated files, and publish a readable capability manifest at
+  `/usr/local/libexec/nitro-control-rgb/manifest.json`. The Phase 4 helper
+  acquires `rgb-helper.lock` and verifies complete manifest/transaction
+  coherence with stdlib-only checks *before* importing `nitro_control.rgb_privileged`
+  (avoiding raw `ModuleNotFoundError`/`SyntaxError` tracebacks on broken installs);
+  `--capabilities` reports protocol-only support (`scope="protocol-only"`,
+  `installation_verified=False`) rather than host readiness, while
+  `RGBClient.capabilities()` and locked privileged execution enforce full
+  installation coherence. Earlier `preview.4` helpers pre-date locking and remain
+  usable for Static requests, so close the dashboard before upgrading a legacy
+  helper (`--adopt-legacy`) and note that Dynamic effects are gated pre-`pkexec`
+  until upgraded.
+- **Firmware response contracts**: Method 5 (`0x05`) and Method 2 (`0x02`)
+  check ACPI transport status only and unconditionally `kfree()` any returned
+  buffer, because original AN515-58/kernel sources did not establish a uniform
+  integer zero-status contract for those two methods; Method 2 writes rely on
+  downstream Method 7 zone readback and Method 21 keyboard-state verification.
+  Methods 6, 7, 20, and 21 validate decoded types/sizes, handle unaligned
+  little-endian ACPI buffers, reject nonzero firmware status codes, verify
+  Static palette zone colors (Method 7) alongside Method 21 `mode` and
+  `brightness=100` (preventing false success when malformed reads hit all-black
+  `0x000000` zones), and verify Dynamic effect requests via Method 21 `mode`,
+  `speed`, and `brightness=100`.
+- **Failure and recovery semantics**: Pre-insertion rejections (before `insmod`
+  runs) perform zero firmware writes. If `insmod` itself fails or times out
+  inside the firmware transaction, Nitro Control conditionally invokes `rmmod`
+  if insertion succeeded or `/sys/module/nitro_rgb_enable_poc` is present,
+  cannot read back structured kernel-internal recovery details over a one-shot
+  module exit code, and explicitly warns that firmware lighting state may have
+  changed and recovery or cancellation could not be confirmed (`journalctl -k`
+  or apply Static). On a client `pkexec` timeout or `PermissionError` signal
+  refusal, state is similarly reported as uncertain without automatic retries.
+- **Verification scope and unverified assumptions**: Offline C protocol tests
+  validate decoder contracts, recovery branches, and value-independent heap
+  buffer handling (`malloc`/poison/`free` in userspace), and isolated `W=1`
+  Kbuild compiles both default and `EXPERIMENTAL=1` configurations. Live
+  `wmi_evaluate_method()` / `kfree()` behavior, EC dimming interactions below
+  `brightness=100`, and visual LED uniformity beyond firmware register
+  readback remain hardware-dependent and are not verified by offline tests.
 
 ## Relationship to the older Linuwu backend
 

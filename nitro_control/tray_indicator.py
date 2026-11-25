@@ -9,24 +9,27 @@ from __future__ import annotations
 
 import fcntl
 import os
-from pathlib import Path
 import signal
 import stat
-import subprocess
 import sys
-from threading import Thread
+from pathlib import Path
+from threading import Lock, Thread
 
-import gi
+from gi import require_version
 
-gi.require_version("Gtk", "3.0")
-gi.require_version("AyatanaAppIndicator3", "0.1")
-from gi.repository import AyatanaAppIndicator3 as AppIndicator3, GLib, Gtk
+require_version("Gtk", "3.0")
+require_version("AyatanaAppIndicator3", "0.1")
+from gi.repository import AyatanaAppIndicator3 as AppIndicator3
+from gi.repository import Gio, GLib, Gtk
 
 from . import APP_ID
+from .desktop_session import activate_live, launch_session_app
 from .hardware import HardwareReader
 from .tray_model import TrayReadout, format_tray_snapshot
 
 POLL_SECONDS = 12
+WATCHER = "org.kde.StatusNotifierWatcher"
+WATCHER_GRACE_MS = 3000
 
 
 def _acquire_single_instance_lock() -> int | None:
@@ -61,31 +64,22 @@ def _acquire_single_instance_lock() -> int | None:
         raise
 
 
-def _open_dashboard() -> None:
-    """Activate the GTK4 app in its own Python interpreter and process."""
-    source_root = Path(__file__).resolve().parent.parent
-    env = os.environ.copy()
-    # Import from the exact installed/source checkout that launched the tray,
-    # not an unrelated stale package in the current shell's working directory.
-    env["PYTHONPATH"] = str(source_root)
-    subprocess.Popen(
-        [sys.executable, "-P", "-m", "nitro_control"],
-        cwd=str(source_root), env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        start_new_session=True,
-    )
-
-
 class TrayIndicator:
     def __init__(self):
-        self._reader = HardwareReader()
+        self._reader = HardwareReader(gpu_poll_interval=POLL_SECONDS - 1)
         self._busy = False
         self._closed = False
+        self._callback_lock = Lock()
+        self._refresh_idle = 0
+        self._opening = False
+        self._dashboard_process = None
+        self._cancellable = Gio.Cancellable()
         self._indicator = AppIndicator3.Indicator.new(
             "nitro-control", f"{APP_ID}-symbolic",
             AppIndicator3.IndicatorCategory.HARDWARE,
         )
+        icon_path = Path(__file__).resolve().parent / "icons/hicolor/symbolic/apps"
+        self._indicator.set_icon_theme_path(str(icon_path))
         self._indicator.set_title("Nitro Control · read-only hardware monitor")
 
         menu = Gtk.Menu()
@@ -118,26 +112,34 @@ class TrayIndicator:
         self._indicator.set_menu(menu)
         self._indicator.set_status(AppIndicator3.IndicatorStatus.ACTIVE)
         self._request_refresh()
-        GLib.timeout_add_seconds(POLL_SECONDS, self._on_timer)
+        self._poll_source = GLib.timeout_add_seconds(POLL_SECONDS, self._on_timer)
 
     def _request_refresh(self) -> None:
         if self._closed or self._busy:
             return
         self._busy = True
-        Thread(target=self._collect_background, daemon=True,
-               name="nitro-tray-readonly-poll").start()
+        try:
+            Thread(target=self._collect_background, daemon=True,
+                   name="nitro-tray-readonly-poll").start()
+        except RuntimeError as exc:
+            print(f"Could not start tray refresh. {exc}", file=sys.stderr)
+            self._finish_refresh(None)
 
     def _collect_background(self) -> None:
         try:
             labels = format_tray_snapshot(self._reader.collect())
         except Exception:
             labels = None
-        GLib.idle_add(self._finish_refresh, labels)
+        with self._callback_lock:
+            if not self._closed:
+                self._refresh_idle = GLib.idle_add(self._finish_refresh, labels)
 
     def _finish_refresh(self, readout: TrayReadout | None) -> bool:
-        self._busy = False
-        if self._closed:
-            return False
+        with self._callback_lock:
+            self._refresh_idle = 0
+            self._busy = False
+            if self._closed:
+                return False
         if readout is None:
             # Do not keep showing stale numbers as if they were current.
             for item in self._measurements.values():
@@ -154,14 +156,40 @@ class TrayIndicator:
         return True
 
     def _on_open(self, *_args) -> None:
+        if self._opening or self._closed:
+            return
+        self._opening = True
+        activate_live(self._cancellable, self._dashboard_activated)
+
+    def _dashboard_activated(self, activated: bool, error: GLib.Error | None) -> None:
+        self._opening = False
+        if self._closed or activated:
+            return
+        if error:
+            print(f"Could not activate Nitro Control. {error}", file=sys.stderr)
+            return
+        # Another click can arrive before a newly spawned dashboard owns its
+        # D-Bus name. GSubprocess reaps that process independently of the tray UI.
+        if self._dashboard_process is not None and self._dashboard_process.get_identifier() is not None:
+            return
         try:
-            _open_dashboard()
+            self._dashboard_process = launch_session_app()
         except OSError as exc:
-            print(f"Could not open Nitro Control: {exc}", file=sys.stderr)
+            print(f"Could not open Nitro Control. {exc}", file=sys.stderr)
+
+    def close(self) -> None:
+        with self._callback_lock:
+            if self._closed:
+                return
+            self._closed = True
+            if self._refresh_idle:
+                GLib.source_remove(self._refresh_idle)
+        GLib.source_remove(self._poll_source)
+        self._cancellable.cancel()
+        self._indicator.set_status(AppIndicator3.IndicatorStatus.PASSIVE)
 
     def _on_quit(self, *_args) -> None:
-        self._closed = True
-        self._indicator.set_status(AppIndicator3.IndicatorStatus.PASSIVE)
+        self.close()
         Gtk.main_quit()
 
 
@@ -183,11 +211,56 @@ def run_tray() -> int:
     if lock is None:
         print("Nitro Control tray is already running.")
         return 0
+    indicator = None
+    grace = 0
+    result = 0
+
+    def watcher_timeout() -> bool:
+        nonlocal grace, result
+        grace = 0
+        result = 2
+        print("No StatusNotifierWatcher available. Enable an AppIndicator extension or use a supported desktop.",
+              file=sys.stderr)
+        Gtk.main_quit()
+        return False
+
+    def appeared(*_args) -> None:
+        nonlocal grace, indicator, result
+        if grace:
+            GLib.source_remove(grace)
+            grace = 0
+        if indicator is None:
+            try:
+                indicator = TrayIndicator()
+            except (GLib.Error, RuntimeError) as exc:
+                result = 2
+                print(f"Could not initialize Nitro Control tray. {exc}", file=sys.stderr)
+                Gtk.main_quit()
+
+    def vanished(*_args) -> None:
+        nonlocal grace
+        if not grace:
+            grace = GLib.timeout_add(WATCHER_GRACE_MS, watcher_timeout)
+
+    watch = 0
+    signals = []
     try:
-        TrayIndicator()
-        # Ctrl+C in a development terminal must stop the tray as usual.
-        signal.signal(signal.SIGINT, signal.SIG_DFL)
+        grace = GLib.timeout_add(WATCHER_GRACE_MS, watcher_timeout)
+        watch = Gio.bus_watch_name(Gio.BusType.SESSION, WATCHER, Gio.BusNameWatcherFlags.NONE, appeared, vanished)
+        for number in (signal.SIGINT, signal.SIGTERM):
+            signals.append(GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, number, Gtk.main_quit))
         Gtk.main()
-        return 0
+        return result
+    except (GLib.Error, RuntimeError) as exc:
+        print(f"Could not run Nitro Control tray. {exc}", file=sys.stderr)
+        return 2
     finally:
+        if watch:
+            Gio.bus_unwatch_name(watch)
+        context = GLib.MainContext.default()
+        for source in (*signals, grace):
+            if source and context.find_source_by_id(source) is not None:
+                GLib.source_remove(source)
+        if indicator is not None:
+            indicator.close()
         os.close(lock)

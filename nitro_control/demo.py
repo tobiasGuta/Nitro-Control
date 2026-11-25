@@ -11,7 +11,8 @@ def demo_snapshot() -> Snapshot:
         sampled_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         model="Acer Nitro AN515-58 (demo)",
         cpu_celsius=45,
-        fans=(Fan("Fan 1", 1986, "Automatic"), Fan("Fan 2", 2112, "Automatic")),
+        fans=(Fan("Fan 1", 1986, "Automatic", channel=1),
+              Fan("Fan 2", 2112, "Automatic", channel=2)),
         acer_temperatures=(
             Temperature("Acer sensor 1 (unidentified)", 48, "acer"),
             Temperature("Acer sensor 2 (unidentified)", 40, "acer"),
