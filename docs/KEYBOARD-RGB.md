@@ -61,8 +61,13 @@ From a checkout of the release, launch Demo mode:
 For a per-user upgrade, close the running dashboard and run
 `./scripts/install-fedora.sh` from the release directory. Reopen Nitro Control
 from the GNOME app grid and select **Keyboard RGB**. The preview works with the
-regular GUI dependencies, including PyCairo. Existing optional fan and RGB
-helpers can be reused.
+regular GUI dependencies, including PyCairo. A compatible `preview.4` RGB helper can still accept **Static** payloads
+on a backend that it supports. A legacy helper cannot use the migrated native
+module location. Use the current manifested helper for private native staging
+and physical **Dynamic** effects. Close Nitro Control and let outstanding
+helper requests finish before migrating an older helper, because pre-manifest
+helpers pre-date `/run/nitro-control/rgb-helper.lock`. For an unmanifested
+preview install, follow the adoption steps in the [native RGB guide](NATIVE-RGB.md).
 
 ## Install physical effects on Fedora
 

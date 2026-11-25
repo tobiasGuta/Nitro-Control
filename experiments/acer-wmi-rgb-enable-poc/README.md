@@ -261,5 +261,36 @@ zone's firmware readback but cannot guarantee physical illumination.
 Do **not** call `insmod` with these arguments directly as a routine action.
 Use the separate pinned, integrity-checked, Polkit-protected backend documented
 in [Native RGB](../../docs/NATIVE-RGB.md). It keeps stock `acer_wmi` loaded,
-runs one authorized transaction, and attempts to unload the module. No boot
-autoload is included; a known-good red-only manual recovery remains available.
+runs one authorized transaction, and conditionally unloads the module if inserted
+or present in `/sys/module`. No boot autoload is included; a known-good red-only
+manual recovery remains available.
+
+### Build modes, parameter restrictions, and upgrade notes
+
+- **Build modes**: Default `make` compiles without
+  `NITRO_ENABLE_EXPERIMENTAL_PARAMS`, exposing only `probe`, `apply`,
+  `colors`, `brightness`, `full_test`, `effect_mode`, `effect_speed`, and
+  `effect_rgb`. Passing `make EXPERIMENTAL=1` is required to expose diagnostic
+  options (`enable`, `backlight_test`, `red_test`, `effect_test`). Both modes
+  preserve `restore-after-boot.sh` (`full_test=1` / `probe=1`).
+- **Upgrading from Phase 2 builds**: Production staging (`install-native-rgb-fedora.sh`),
+  readiness checks, and runtime helper verification reject binaries exposing
+  experimental diagnostic parameters—including identical-digest staged files.
+  Rebuild with plain `make clean && make` and re-run
+  `sudo ./scripts/install-native-rgb-fedora.sh` (or uninstall first via
+  `sudo ./scripts/uninstall-native-rgb-fedora.sh`).
+- **ACPI contracts, recovery, and limits**: Method 5 (`0x05`) and Method 2
+  (`0x02`) require ACPI transport success and unconditionally free returned ACPI
+  buffers, leaving Method 2 effectiveness verified indirectly by downstream
+  Method 7 + Method 21 readback checks (no firmware zero-status integer
+  contract is assumed for Method 2). Static writes verify Method 7 zone colors
+  plus Method 21 `mode` and `brightness=100`; Dynamic writes verify Method 21
+  `mode`, `speed`, and `brightness=100`. Methods 6 (`0x06`), 7 (`0x07`), 20
+  (`0x14`), and 21 (`0x15`) validate decoded ACPI integer/buffer layouts
+  cleanly. When a firmware `insmod` transaction fails or times out, the host tool
+  conditionally removes the module when loaded and reports that lighting state
+  may have changed and recovery could not be confirmed (inspect `journalctl -k`
+  or apply Static). Userspace C tests cover protocol decoding, recovery
+  transitions, and poisoned heap-buffer independence (`malloc`/`free`); actual
+  kernel `kfree()` and ACPI firmware execution depend on source inspection,
+  `W=1` Kbuild, and physical hardware.

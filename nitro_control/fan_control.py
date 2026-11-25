@@ -106,41 +106,126 @@ def _write(path: Path, value: int) -> None:
     path.write_text(f"{value}\n", encoding="ascii")
 
 
+_LOCK_SUBDIR = "nitro-control"
+_LOCK_NAME = "fan.lock"
+
+
+def _verify_lock_stat(info: os.stat_result, *, directory: bool, expected_uid: int,
+                      exact_mode: int | None = None,
+                      no_group_world_write: bool = False) -> None:
+    is_kind = stat.S_ISDIR(info.st_mode) if directory else stat.S_ISREG(info.st_mode)
+    if not is_kind or info.st_uid != expected_uid:
+        raise FanControlError("Fan control lock has unsafe ownership or file type.")
+    if exact_mode is not None and stat.S_IMODE(info.st_mode) != exact_mode:
+        raise FanControlError("Fan control lock has unsafe permissions.")
+    if no_group_world_write and (info.st_mode & 0o022):
+        raise FanControlError("Fan control runtime directory has unsafe permissions.")
+
+
 def _restore_auto(hwmon: Path) -> None:
-    failed = []
+    write_failed: set[int] = set()
     for channel in CHANNELS:
         path = hwmon / f"pwm{channel}_enable"
         try:
             _write(path, 2)
+        except OSError:
+            write_failed.add(channel)
+    verify_failed: set[int] = set()
+    for channel in CHANNELS:
+        path = hwmon / f"pwm{channel}_enable"
+        try:
             if _number(path, 2) != 2:
-                failed.append(channel)
+                verify_failed.add(channel)
         except (OSError, ValueError, FanControlError):
-            failed.append(channel)
+            verify_failed.add(channel)
+    failed = sorted(write_failed | verify_failed)
     if failed:
         names = ", ".join("CPU" if channel == 1 else "GPU" for channel in failed)
+        verified = [channel for channel in CHANNELS
+                    if channel not in write_failed and channel not in verify_failed]
+        if verified:
+            ok_names = ", ".join("CPU" if channel == 1 else "GPU" for channel in verified)
+            raise FanControlError(f"Could not verify Auto for {names} ({ok_names} verified Auto).")
         raise FanControlError(f"Could not verify Auto for {names}.")
 
 
 @contextmanager
-def _lock(hwmon: Path):
-    descriptor = os.open(hwmon, os.O_RDONLY | os.O_DIRECTORY)
+def _lock(root: Path = Path("/")):
+    """Serialize fan writes using a private runtime directory outside world-readable sysfs."""
+    expected_uid = os.geteuid()
+    run_path = root / "run"
+    if root != Path("/"):
+        try:
+            os.mkdir(run_path, 0o755)
+        except FileExistsError:
+            pass
+        except OSError as exc:
+            raise FanControlError("Fan control lock directory is unavailable.") from exc
+    run_fd = -1
+    dir_fd = -1
+    lock_fd = -1
     try:
         try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            run_fd = os.open(run_path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            run_info = os.fstat(run_fd)
+        except OSError as exc:
+            raise FanControlError("Fan control lock directory is unavailable.") from exc
+        _verify_lock_stat(run_info, directory=True, expected_uid=expected_uid,
+                          no_group_world_write=True)
+        try:
+            try:
+                os.mkdir(_LOCK_SUBDIR, 0o700, dir_fd=run_fd)
+            except FileExistsError:
+                pass
+            dir_fd = os.open(_LOCK_SUBDIR,
+                             os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                             dir_fd=run_fd)
+            dir_info = os.fstat(dir_fd)
+        except OSError as exc:
+            raise FanControlError("Fan control lock directory is unavailable.") from exc
+        finally:
+            os.close(run_fd)
+            run_fd = -1
+
+        _verify_lock_stat(dir_info, directory=True, expected_uid=expected_uid, exact_mode=0o700)
+        try:
+            lock_fd = os.open(
+                _LOCK_NAME,
+                os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK,
+                0o600,
+                dir_fd=dir_fd,
+            )
+            lock_info = os.fstat(lock_fd)
+        except OSError as exc:
+            raise FanControlError("Fan control lock file is unavailable.") from exc
+        finally:
+            os.close(dir_fd)
+            dir_fd = -1
+
+        _verify_lock_stat(lock_info, directory=False, expected_uid=expected_uid, exact_mode=0o600)
+        try:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise FanControlError("Another fan change is in progress.") from exc
         yield
     finally:
-        os.close(descriptor)
+        if run_fd != -1:
+            os.close(run_fd)
+        if dir_fd != -1:
+            os.close(dir_fd)
+        if lock_fd != -1:
+            os.close(lock_fd)
 
 
 def apply_fan_plan(plan: FanPlan, root: Path = Path("/")) -> None:
     """Serialize writes and restore firmware control if a change fails partway."""
-    hwmon = find_fan_controls(root)
-    if hwmon is None:
+    if find_fan_controls(root) is None:
         raise FanControlError("Stock Acer fan controls are unavailable.")
 
-    with _lock(hwmon):
+    with _lock(root):
+        hwmon = find_fan_controls(root)
+        if hwmon is None:
+            raise FanControlError("Stock Acer fan controls are unavailable.")
         if plan.mode == "Auto":
             _restore_auto(hwmon)
             return
@@ -158,8 +243,8 @@ def apply_fan_plan(plan: FanPlan, root: Path = Path("/")) -> None:
             try:
                 _restore_auto(hwmon)
             except FanControlError as restore_error:
-                raise FanControlError(f"Fan change failed. {restore_error}") from exc
-            raise FanControlError("Fan change failed. Both fans returned to Auto.") from exc
+                raise FanControlError(f"Fan change failed ({exc}). {restore_error}") from exc
+            raise FanControlError(f"Fan change failed ({exc}). Both fans returned to Auto.") from exc
 
 
 def _parse_speed(value: str) -> int | None:

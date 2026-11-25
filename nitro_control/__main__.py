@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
 import json
 import sys
+from dataclasses import asdict
 
 from . import __version__
 from .demo import demo_snapshot
@@ -36,6 +36,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Details: {exc}", file=sys.stderr)
             return 2
         return run_tray()
+    if args.rgb_probe and args.demo:
+        parser.error("--demo cannot be combined with a live RGB probe")
     if args.rgb_probe:
         from .rgb_hardware import RGBHardware
         print(json.dumps(asdict(RGBHardware().probe()), indent=2))

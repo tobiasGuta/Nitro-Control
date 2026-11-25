@@ -2,52 +2,41 @@
 # Optional: installs root-owned one-shot RGB helper and a specific Polkit action.
 # NEVER installs, replaces, loads, blacklists or removes any kernel module.
 set -euo pipefail
-cd "$(dirname "${BASH_SOURCE[0]}")/.."
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+cd "$REPO_ROOT"
 if [[ ${EUID} -ne 0 ]]; then
-  echo 'Run explicitly as: sudo ./scripts/install-rgb-helper-fedora.sh [--cache-authorization]' >&2
+  echo 'Run explicitly as: sudo ./scripts/install-rgb-helper-fedora.sh [--adopt-legacy] [--cache-authorization]' >&2
   exit 1
 fi
 # Default: ask for administrator credentials on every physical apply.
 # Explicit opt-in: Polkit may retain this action's authorization briefly (~5 minutes).
-case "${1:-}" in
+ADOPT_LEGACY=0
+CACHE_AUTH=''
+for arg in "$@"; do
+  case "$arg" in
+    --adopt-legacy) ADOPT_LEGACY=1 ;;
+    --cache-authorization) CACHE_AUTH='--cache-authorization' ;;
+    *) echo 'Usage: sudo ./scripts/install-rgb-helper-fedora.sh [--adopt-legacy] [--cache-authorization]' >&2; exit 2 ;;
+  esac
+done
+case "${CACHE_AUTH}" in
   '') authorization='auth_admin' ;;
   --cache-authorization) authorization='auth_admin_keep' ;;
-  *) echo 'Usage: sudo ./scripts/install-rgb-helper-fedora.sh [--cache-authorization]' >&2; exit 2 ;;
 esac
-if [[ $# -gt 1 ]]; then
-  echo 'Usage: sudo ./scripts/install-rgb-helper-fedora.sh [--cache-authorization]' >&2
-  exit 2
+# Enforced PolicyKit defaults written transactionally with provenance manifest:
+#   <allow_any>no</allow_any>
+#   <allow_inactive>no</allow_inactive>
+#   <allow_active>${authorization}</allow_active>
+#   <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/nitro-control-rgb-helper</annotate>
+# Managed helper modules: __init__.py rgb.py rgb_hardware.py module_staging.py native_rgb.py rgb_privileged.py
+EXTRA_ARGS=()
+if (( ADOPT_LEGACY == 1 )); then
+  EXTRA_ARGS+=(--adopt-legacy)
 fi
-install -d -m 755 /usr/local/libexec/nitro-control-rgb/nitro_control
-for file in __init__.py rgb.py rgb_hardware.py native_rgb.py rgb_privileged.py; do
-  install -o root -g root -m 644 "nitro_control/$file" "/usr/local/libexec/nitro-control-rgb/nitro_control/$file"
-done
-cat > /usr/local/libexec/nitro-control-rgb-helper <<'PY'
-#!/usr/bin/python3 -I
+/usr/bin/python3 -I -c '
 import sys
-sys.path.insert(0, "/usr/local/libexec/nitro-control-rgb")
-from nitro_control.rgb_privileged import main
-raise SystemExit(main())
-PY
-chown root:root /usr/local/libexec/nitro-control-rgb-helper
-chmod 755 /usr/local/libexec/nitro-control-rgb-helper
-install -d -m 755 /usr/share/polkit-1/actions
-cat > /usr/share/polkit-1/actions/io.github.tobiasguta.NitroControl.rgb.policy <<XML
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN" "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
-<policyconfig>
-  <action id="io.github.tobiasguta.NitroControl.rgb">
-    <description>Apply Acer Nitro keyboard RGB lighting</description>
-    <message>Authentication is required to change your keyboard RGB lighting.</message>
-    <defaults>
-      <allow_any>no</allow_any>
-      <allow_inactive>no</allow_inactive>
-      <allow_active>${authorization}</allow_active>
-    </defaults>
-    <annotate key="org.freedesktop.policykit.exec.path">/usr/local/libexec/nitro-control-rgb-helper</annotate>
-  </action>
-</policyconfig>
-XML
-chown root:root /usr/share/polkit-1/actions/io.github.tobiasguta.NitroControl.rgb.policy
-chmod 644 /usr/share/polkit-1/actions/io.github.tobiasguta.NitroControl.rgb.policy
+sys.path.insert(0, sys.argv[1])
+from nitro_control.module_staging import _cli_main
+raise SystemExit(_cli_main(sys.argv[2:]))
+' "$REPO_ROOT" install-rgb-helper --repo-root "$REPO_ROOT" --authorization "$authorization" "${EXTRA_ARGS[@]}"
 echo "Installed optional root-owned RGB helper (${authorization}). No kernel driver changes made."

@@ -1,16 +1,27 @@
 #!/usr/bin/bash
-# Explicit, kernel-pinned installation of the user's locally tested module.
+# Explicit, kernel-pinned installation of the user's locally tested module
+# into /usr/local/lib/nitro-control/modules/$KERNEL/ outside /usr/lib/modules.
 # Installs a disabled-on-boot service. Never blacklists native acer_wmi.
 set -Eeuo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 [[ $EUID -eq 0 ]] || { echo 'Run with sudo; see docs/RGB-HARDWARE.md.' >&2; exit 1; }
-[[ $# -eq 1 && "$1" == /* ]] || { echo 'Usage: sudo ./scripts/install-rgb-driver-fedora.sh /absolute/path/to/patched/linuwu_sense.ko' >&2; exit 2; }
+
+ADOPT_LEGACY=0
+if [[ "${1:-}" == "--adopt-legacy" ]]; then
+  ADOPT_LEGACY=1
+  shift
+fi
+[[ $# -eq 1 && "$1" == /* ]] || { echo 'Usage: sudo ./scripts/install-rgb-driver-fedora.sh [--adopt-legacy] /absolute/path/to/patched/linuwu_sense.ko' >&2; exit 2; }
+
 SOURCE="$1"
 KERNEL="$(uname -r)"
-DEST="/usr/lib/modules/$KERNEL/extra/nitro-control/linuwu_sense.ko"
-SERVICE='/etc/systemd/system/nitro-control-rgb-driver.service'
-CONTROLLER='/usr/local/libexec/nitro-control-rgb-driver'
-[[ "$(cat /sys/class/dmi/id/product_name)" == 'Nitro AN515-58' ]] || { echo 'Unsupported model.' >&2; exit 1; }
+REPO_ROOT="$(pwd -P)"
+PRIVATE_BASE='/usr/local/lib/nitro-control'
+DEST_DIR="$PRIVATE_BASE/modules/$KERNEL"
+DEST="$DEST_DIR/linuwu_sense.ko"
+
+[[ "$(cat /sys/class/dmi/id/product_name 2>/dev/null || true)" == 'Nitro AN515-58' ]] || { echo 'Unsupported model.' >&2; exit 1; }
 [[ -f "$SOURCE" && ! -L "$SOURCE" ]] || { echo 'No regular compiled module at supplied path.' >&2; exit 1; }
 [[ "$(modinfo -F name "$SOURCE")" == 'linuwu_sense' ]] || { echo 'Wrong module name.' >&2; exit 1; }
 [[ "$(modinfo -F vermagic "$SOURCE" | cut -d' ' -f1)" == "$KERNEL" ]] || { echo 'Module is not built for this running kernel.' >&2; exit 1; }
@@ -20,24 +31,30 @@ fi
 if [[ -e /etc/modprobe.d/blacklist-acer_wmi.conf || -e /etc/modules-load.d/linuwu_sense.conf || -e /etc/systemd/system/linuwu_sense.service ]]; then
     echo 'Conflicting Linuwu/acer_wmi installation detected; investigate it before installing.' >&2; exit 1
 fi
-if systemctl is-active --quiet nitro-control-rgb-driver.service 2>/dev/null || grep -q '^linuwu_sense ' /proc/modules; then
-    echo 'An RGB driver session is active; stop it before reinstalling.' >&2; exit 1
-fi
-if [[ -e "$SERVICE" ]] && ! grep -q '^# Installed explicitly by Nitro Control;' "$SERVICE"; then
-    echo 'Service path is occupied by an unrelated unit; refusing overwrite.' >&2; exit 1
+if systemctl is-active --quiet nitro-control-rgb-driver.service 2>/dev/null ||
+   { [[ -r /proc/modules ]] && grep -Eq '^(linuwu_sense|nitro_rgb_enable_poc) ' /proc/modules; } ||
+   [[ -d /sys/module/linuwu_sense || -d /sys/module/nitro_rgb_enable_poc ]]; then
+    echo 'An RGB driver session or conflicting module is active; stop it before reinstalling.' >&2; exit 1
 fi
 [[ -f scripts/rgb-driver-service-fedora.sh && -f scripts/nitro-control-rgb-driver.service ]] || exit 1
-install -D -o root -g root -m 644 "$SOURCE" "$DEST"
-sha256sum "$DEST" | cut -d' ' -f1 > "$DEST.sha256"
-chown root:root "$DEST.sha256"
-chmod 600 "$DEST.sha256"
-if command -v restorecon >/dev/null 2>&1; then restorecon -F "$DEST" "$DEST.sha256" || true; fi
-install -D -o root -g root -m 755 scripts/rgb-driver-service-fedora.sh "$CONTROLLER"
-install -D -o root -g root -m 644 scripts/nitro-control-rgb-driver.service "$SERVICE"
-if command -v restorecon >/dev/null 2>&1; then restorecon -F "$CONTROLLER" "$SERVICE" || true; fi
-systemctl daemon-reload
-# Deliberately opt out of automatic boot loading, even on reinstall.
-systemctl disable nitro-control-rgb-driver.service >/dev/null 2>&1 || true
+
+EXTRA_ARGS=()
+if (( ADOPT_LEGACY == 1 )); then
+  EXTRA_ARGS+=(--adopt-legacy)
+fi
+
+# Shared staging validates staged sha256sum/vermagic, commits atomically, migrates
+# verified legacy copies, clears depmod indexes, and ensures:
+# systemctl disable nitro-control-rgb-driver.service remains verified disabled.
+/usr/bin/python3 -I -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from nitro_control.module_staging import _cli_main
+raise SystemExit(_cli_main(sys.argv[2:]))
+' "$REPO_ROOT" install --component rgb-driver --kernel "$KERNEL" --source "$SOURCE" \
+  --controller-src "$REPO_ROOT/scripts/rgb-driver-service-fedora.sh" \
+  --unit-src "$REPO_ROOT/scripts/nitro-control-rgb-driver.service" "${EXTRA_ARGS[@]}"
+
 printf 'Pinned module installed: %s\nSHA256: %s\n' "$DEST" "$(cat "$DEST.sha256")"
-echo 'Boot autoload remains DISABLED. No driver was loaded or replaced.'
+echo 'Boot autoload verified DISABLED and index clearance checked. No driver was loaded or replaced.'
 echo 'Next: sudo systemctl start nitro-control-rgb-driver.service'

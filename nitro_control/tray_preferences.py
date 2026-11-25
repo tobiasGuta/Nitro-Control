@@ -8,12 +8,9 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import stat
-import subprocess
-import sys
 import tempfile
-
+from pathlib import Path
 
 _MAX_CONFIG_BYTES = 4096
 _FILENAME = "tray-preferences.json"
@@ -84,18 +81,8 @@ def save_keep_in_tray(enabled: bool) -> None:
             os.unlink(temporary)
 
 
-def start_tray_process() -> subprocess.Popen:
-    """Spawn the existing standalone GTK3 tray; never import GTK3 into GTK4."""
-    source_root = Path(__file__).resolve().parent.parent
-    env = os.environ.copy()
-    # Avoid stale checkouts shadowing a tray imported from the app's source.
-    env["PYTHONPATH"] = str(source_root)
-    return subprocess.Popen(
-        [sys.executable, "-P", "-m", "nitro_control", "--tray"],
-        cwd=str(source_root),
-        env=env,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        # Keep terminal/journal stderr available for Ayatana/GTK diagnostics.
-        start_new_session=True,
-    )
+def start_tray_process():
+    """Spawn the standalone GTK3 tray without importing GTK3 into GTK4."""
+    from .desktop_session import launch_session_app
+
+    return launch_session_app("--tray")

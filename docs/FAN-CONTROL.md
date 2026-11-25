@@ -27,14 +27,16 @@ administrator authentication prompt.
 
 | Mode | Behavior |
 | --- | --- |
-| **Auto** | Returns both fans to firmware control. |
-| **Max** | Requests full speed for both fans. A separate confirmation lets you cancel before authentication. |
-| **Custom** | Sets the CPU and GPU independently. Each fan can stay in Auto or use a fixed setting from 45% to 100%. |
+| **Auto** | Returns both fans to firmware control. Also available directly via **Restore Auto**. |
+| **Max** | Requests full speed for both fans. A confirmation dialog lets you cancel before authentication. |
+| **Custom** | Sets the CPU and GPU independently. Each fan can stay in Auto or use a fixed setting from 45% to 100%. Asks for confirmation and warns that fixed speeds persist after closing and may limit cooling under heavy load. |
 
 The sliders show the requested settings. The dials show measured RPM, which can
 take a few seconds to settle. Max and Custom can remain active after you close
-the window. To end an override, select **Auto**, apply it, and verify that both
-fan status cards report **Automatic**.
+the window or if the app exits unexpectedly, and firmware thermal override of
+fixed speeds under heavy load is not guaranteed. To end an override, click
+**Restore Auto** (or select **Auto** and apply it), then verify that both fan
+status cards report **Automatic**.
 
 ## Supported hardware and troubleshooting
 
@@ -85,3 +87,24 @@ sudo ./scripts/uninstall-fan-helper-fedora.sh
 
 This removes the helper and its PolicyKit action. The per-user dashboard
 continues to show fan telemetry.
+
+## Upgrading or rolling back the fan helper
+
+Current builds serialize privileged fan writes via a root-owned private lock
+under `/run/nitro-control/fan.lock` rather than locking `/sys/.../hwmonN`, so an
+unprivileged local user cannot block root helper operations through world-readable
+sysfs paths. Because earlier helper builds locked the sysfs `hwmon` directory
+instead, do not overlap helper generations:
+
+1. **Quiesce before changing versions:** Close Nitro Control and wait for any
+   active `pkexec` / `/usr/local/libexec/nitro-control-fan-helper` invocation to
+   finish before upgrading, uninstalling, or rolling back the helper. Never keep
+   duplicate backup helper binaries under `/usr/local/libexec`.
+2. **Match app and helper checkouts:** Upgrade or roll back the user app
+   (`install-fedora.sh`, if installed to the launcher) and re-run
+   `sudo ./scripts/install-fan-helper-fedora.sh` from the exact same checkout so
+   UI expectations and privileged helper behavior match.
+3. **Rollback sequence:** Restore **Auto** and verify both fan status cards
+   report **Automatic**, close Nitro Control, verify no helper process is
+   running, run `sudo ./scripts/uninstall-fan-helper-fedora.sh`, and then run
+   `sudo ./scripts/install-fan-helper-fedora.sh` from the target checkout.

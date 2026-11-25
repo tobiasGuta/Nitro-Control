@@ -1,23 +1,94 @@
-name: Python core tests
+name: Nitro Control qualification
+
 on:
   push:
   pull_request:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  test:
-    runs-on: ubuntu-latest
+  python-compatibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ['3.11', '3.13']
+        python-version: ['3.11', '3.12', '3.13', '3.14', '3.15']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Validate Python sources
-        run: python -m compileall -q nitro_control tests
-      - name: Check safe installer and recovery script syntax
-        run: bash -n scripts/*.sh experiments/acer-wmi-rgb-enable-poc/*.sh
-      - name: Run offline sensor tests
+      - name: Compile Python sources
+        run: python -m compileall -q nitro_control scripts tests
+      - name: Check each shell script
+        run: |
+          for script in scripts/*.sh experiments/acer-wmi-rgb-enable-poc/*.sh; do
+            bash -n "$script"
+          done
+      - name: Run compatibility tests with platform skips reported
         run: python -m unittest discover -s tests -v
-      - name: Validate demo JSON without GUI dependencies
+      - name: Validate Demo JSON without GTK
         run: python -m nitro_control --demo --once | python -m json.tool > /dev/null
+
+  desktop-and-native:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install desktop and native build test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            python3-gi python3-gi-cairo python3-cairo python3-venv \
+            gir1.2-gtk-4.0 gir1.2-adw-1 gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1 \
+            dbus-daemon xvfb xauth desktop-file-utils shellcheck gcc make binutils kmod linux-headers-generic
+      - name: Targeted Python and shell lint
+        run: |
+          /usr/bin/python3 -m venv "$RUNNER_TEMP/nitro-lint"
+          "$RUNNER_TEMP/nitro-lint/bin/python" -m pip install \
+            --only-binary=:all: --no-deps --require-hashes -r .github/requirements-ci.txt
+          "$RUNNER_TEMP/nitro-lint/bin/ruff" check --select E9,F nitro_control scripts tests
+          shellcheck scripts/{install-fedora,uninstall,enable-tray-autostart-fedora,disable-tray-autostart-fedora,smoke-test-gui-install-rollback-fedora}.sh
+      - name: Require GTK4, GTK3 and desktop-entry fixtures
+        run: |
+          command -v desktop-file-validate
+          PYTHONPATH=. GDK_BACKEND=x11 xvfb-run -a /usr/bin/python3 tests/run_release_gate.py \
+            test_gtk_lifecycle test_gui_deployment test_app_icons test_tray_indicator
+      - name: Require the strict C11 harness and both disposable module builds
+        run: |
+          headers="$(find /lib/modules -maxdepth 2 -path '*/[0-9]*-generic/build' -print | sort -V | tail -n 1)"
+          test -n "$headers"
+          test -f "$headers/Makefile"
+          PYTHONPATH=. NITRO_KBUILD_DIR="$headers" /usr/bin/python3 tests/run_release_gate.py test_nitro_rgb_c_protocol
+      - name: Exercise archived source upgrade and rollback
+        run: bash scripts/smoke-test-gui-install-rollback-fedora.sh
+
+  lifecycle-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Enable isolated-root fixtures on the disposable runner
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends bubblewrap
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - name: Require module lifecycle tests
+        env:
+          NITRO_REQUIRE_ISOLATED_ROOT_TESTS: '1'
+        run: PYTHONPATH=. /usr/bin/python3 tests/run_release_gate.py test_module_lifecycle

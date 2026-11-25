@@ -1,13 +1,13 @@
 """Offline tests for optional read-only AppIndicator (no GTK/display needed)."""
 from __future__ import annotations
 
-from dataclasses import replace
 import os
-from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 
 from nitro_control.demo import demo_snapshot
 from nitro_control.models import Fan
@@ -64,6 +64,29 @@ class TrayReadoutTests(unittest.TestCase):
         self.assertEqual(fields.cpu_temp, "CPU temperature: Unavailable")
         self.assertEqual(fields.gpu_temp, "GPU temperature: Unavailable")
 
+    def test_missing_fan1_and_genuine_labels_do_not_misalign_tray(self):
+        missing_fan1 = replace(
+            demo_snapshot(),
+            model="Nitro AN515-58",
+            fans=(Fan("Fan 2", 3157, "Unknown", channel=2),),
+        )
+        fields = format_tray_snapshot(missing_fan1)
+        self.assertEqual(fields.cpu_fan, "Fan 1: Unavailable")
+        self.assertEqual(fields.gpu_fan, "GPU fan: 3,157 RPM")
+
+        custom_labels = replace(
+            demo_snapshot(),
+            model="Nitro AN515-58",
+            fans=(
+                Fan("GPU Blower", 3200, "Automatic", channel=2),
+                Fan("CPU Blower", 2400, "Manual", channel=1),
+                Fan("Aux Fan", 1100, "Unknown", channel=3),
+            ),
+        )
+        labeled_fields = format_tray_snapshot(custom_labels)
+        self.assertEqual(labeled_fields.cpu_fan, "CPU Blower: 2,400 RPM")
+        self.assertEqual(labeled_fields.gpu_fan, "GPU Blower: 3,200 RPM")
+
 
 class TrayArchitectureTests(unittest.TestCase):
     def test_tray_is_not_imported_until_explicit_cli_flag(self):
@@ -80,12 +103,12 @@ class TrayArchitectureTests(unittest.TestCase):
 
     def test_tray_never_accesses_privileged_hardware(self):
         source = (ROOT / "nitro_control" / "tray_indicator.py").read_text()
-        self.assertIn("HardwareReader()", source)
+        self.assertIn("HardwareReader(gpu_poll_interval=", source)
         self.assertIn('GLib.timeout_add_seconds(POLL_SECONDS, self._on_timer)', source)
         self.assertIn('Thread(target=self._collect_background', source)
-        self.assertIn('gi.require_version("Gtk", "3.0")', source)
-        self.assertIn('gi.require_version("AyatanaAppIndicator3", "0.1")', source)
-        self.assertIn('sys.executable, "-P", "-m", "nitro_control"', source)
+        self.assertIn('require_version("Gtk", "3.0")', source)
+        self.assertIn('require_version("AyatanaAppIndicator3", "0.1")', source)
+        self.assertIn("activate_live(self._cancellable", source)
         for unsafe in ("RGBClient(", "PowerProfileController(", "pkexec",
                        "modprobe ", "insmod ", "/dev/port", "os.system(",
                        "subprocess.run(", ".apply("):
@@ -118,11 +141,10 @@ class TrayAutostartTests(unittest.TestCase):
         subprocess.run(["bash", "-n", str(disable)], check=True)
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
-            launcher = home / ".local/bin/nitro-control"
-            launcher.parent.mkdir(parents=True)
-            launcher.write_text("#!/bin/sh\nexit 0\n")
-            launcher.chmod(0o755)
-            env = dict(os.environ, HOME=str(home))
+            from scripts.gui_deploy import Deployment
+
+            Deployment(home, home / ".config").install(ROOT)
+            env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"))
             installed = subprocess.run(["bash", str(enable)], env=env,
                                        capture_output=True, text=True, timeout=10)
             self.assertEqual(installed.returncode, 0, installed.stderr)
@@ -130,7 +152,8 @@ class TrayAutostartTests(unittest.TestCase):
             text = entry.read_text()
             self.assertIn("Managed by Nitro Control optional tray autostart", text)
             self.assertIn("--tray", text)
-            self.assertIn("Exec=\"" + str(launcher) + "\" --tray", text)
+            self.assertIn('.local/bin/nitro-control', text)
+            self.assertTrue(next(line for line in text.splitlines() if line.startswith("Exec=")).endswith(" --tray"))
             removed = subprocess.run(["bash", str(disable)], env=env,
                                      capture_output=True, text=True, timeout=10)
             self.assertEqual(removed.returncode, 0, removed.stderr)
@@ -148,7 +171,7 @@ class TrayAutostartTests(unittest.TestCase):
             target = home / ".config/autostart/io.github.tobiasguta.NitroControl.Tray.desktop"
             target.parent.mkdir(parents=True)
             target.write_text("Not ours\n")
-            env = dict(os.environ, HOME=str(home))
+            env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home / ".config"))
             for script in ("enable-tray-autostart-fedora.sh",
                            "disable-tray-autostart-fedora.sh"):
                 p = subprocess.run(["bash", str(ROOT / "scripts" / script)],

@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import stat
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from nitro_control.tray_preferences import (
@@ -89,17 +89,15 @@ class TrayPreferenceTests(unittest.TestCase):
 
 
 class TrayLaunchTests(unittest.TestCase):
-    def test_tray_process_is_separate_and_checkout_pinned(self):
-        with patch("nitro_control.tray_preferences.subprocess.Popen") as popen:
+    def test_tray_process_uses_the_standalone_entry_point(self):
+        # GI is imported by the desktop session launcher, not the preference reader.
+        from unittest.mock import Mock
+
+        session = Mock()
+        with patch.dict("sys.modules", {"nitro_control.desktop_session": session}):
             result = start_tray_process()
-            self.assertIs(result, popen.return_value)
-        args, kwargs = popen.call_args
-        self.assertEqual(args[0][1:], ["-P", "-m", "nitro_control", "--tray"])
-        self.assertTrue(Path(kwargs["cwd"]).joinpath("nitro_control").is_dir())
-        self.assertEqual(kwargs["env"]["PYTHONPATH"], kwargs["cwd"])
-        self.assertTrue(kwargs["start_new_session"])
-        self.assertNotIn("sudo", args[0])
-        self.assertNotIn("pkexec", args[0])
+        self.assertIs(result, session.launch_session_app.return_value)
+        session.launch_session_app.assert_called_once_with("--tray")
 
     def test_ui_switch_is_live_opt_in_and_demo_safe(self):
         source = (ROOT / "nitro_control" / "ui.py").read_text()

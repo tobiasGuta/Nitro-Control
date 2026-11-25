@@ -26,15 +26,19 @@ class NativeRGBInstallContracts(unittest.TestCase):
         source = INSTALL.read_text()
         for requirement in (
             'KERNEL="$(uname -r)"',
-            "extra/nitro-control/nitro_rgb_enable_poc.ko",
+            "/usr/local/lib/nitro-control",
+            "nitro_rgb_enable_poc.ko",
             "modinfo -F name",
             "modinfo -F vermagic",
             "sha256sum",
             "Nitro AN515-58",
             "mokutil --sb-state",
+            "native-rgb.lock",
+            "depmod -a",
         ):
             with self.subTest(requirement=requirement):
                 self.assertIn(requirement, source)
+        self.assertNotIn("install -D -o root -g root -m 644 \"$SOURCE\" \"/usr/lib/modules", source)
         for forbidden in ("systemctl enable", "systemctl start", "insmod ", "modprobe -r",
                           "blacklist acer_wmi", "make install", "grubby", "dracut"):
             self.assertNotIn(forbidden, source)
@@ -44,6 +48,8 @@ class NativeRGBInstallContracts(unittest.TestCase):
         remover = HELPER_UNINSTALL.read_text()
         self.assertIn("native_rgb.py", installer)
         self.assertIn("native_rgb.py", remover)
+        self.assertIn("module_staging.py", installer)
+        self.assertIn("module_staging.py", remover)
         self.assertIn("auth_admin'", installer)
         self.assertIn('<allow_inactive>no</allow_inactive>', installer)
         self.assertNotIn("<allow_active>yes</allow_active>", installer)
@@ -51,7 +57,8 @@ class NativeRGBInstallContracts(unittest.TestCase):
     def test_uninstall_refuses_to_remove_active_module(self):
         source = UNINSTALL.read_text()
         self.assertIn("grep -q '^nitro_rgb_enable_poc ' /proc/modules", source)
-        self.assertIn('MODULE="/usr/lib/modules/$(uname -r)/', source)
+        self.assertIn("/usr/local/lib/nitro-control", source)
+        self.assertIn("depmod -a", source)
         self.assertNotIn("rmmod ", source)
         self.assertNotIn("systemctl enable", source)
 

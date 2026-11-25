@@ -2,14 +2,13 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 from nitro_control import APP_ID
-
 
 ROOT = Path(__file__).resolve().parents[1]
 ICONS_ROOT = ROOT / "nitro_control" / "icons" / "hicolor"
@@ -17,7 +16,6 @@ APP_ICON = ICONS_ROOT / "scalable" / "apps" / f"{APP_ID}.svg"
 SYMBOLIC_ICON = ICONS_ROOT / "symbolic" / "apps" / f"{APP_ID}-symbolic.svg"
 INSTALLER = ROOT / "scripts" / "install-fedora.sh"
 UNINSTALLER = ROOT / "scripts" / "uninstall.sh"
-TRAY_ENABLE = ROOT / "scripts" / "enable-tray-autostart-fedora.sh"
 
 
 class BundledIconTests(unittest.TestCase):
@@ -40,15 +38,15 @@ class BundledIconTests(unittest.TestCase):
         ):
             text = (ROOT / rel).read_text(encoding="utf-8")
             self.assertNotIn("utilities-system-monitor", text)
-        self.assertIn(f"Icon={APP_ID}", INSTALLER.read_text(encoding="utf-8"))
-        self.assertIn(f"Icon={APP_ID}", TRAY_ENABLE.read_text(encoding="utf-8"))
         tray_source = (ROOT / "nitro_control" / "tray_indicator.py").read_text(encoding="utf-8")
         self.assertIn('f"{APP_ID}-symbolic"', tray_source)
         ui_source = (ROOT / "nitro_control" / "ui.py").read_text(encoding="utf-8")
         self.assertIn("Gtk.Window.set_default_icon_name(APP_ID)", ui_source)
 
     def test_installer_and_uninstaller_manage_icons_in_isolated_home(self):
-        subprocess.run(["bash", "-n", str(INSTALLER), str(UNINSTALLER)], check=True)
+        for script in (INSTALLER, UNINSTALLER):
+            with self.subTest(script=script.name):
+                subprocess.run(["bash", "-n", str(script)], check=True)
         gui_probe = subprocess.run(
             [
                 "/usr/bin/python3",
@@ -65,7 +63,7 @@ class BundledIconTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temporary:
             home = Path(temporary)
-            env = dict(os.environ, HOME=str(home))
+            env = dict(os.environ, HOME=str(home), XDG_CONFIG_HOME=str(home / '.config'))
             install_res = subprocess.run(
                 ["bash", str(INSTALLER)],
                 cwd=ROOT,
@@ -83,6 +81,11 @@ class BundledIconTests(unittest.TestCase):
             self.assertTrue(app_svg.is_file())
             self.assertTrue(sym_svg.is_file())
             self.assertIn(f"Icon={APP_ID}", desktop.read_text(encoding="utf-8"))
+            demo_desktop = desktop.with_name(f"{APP_ID}.Demo.desktop")
+            demo_entry = demo_desktop.read_text(encoding="utf-8").splitlines()
+            self.assertIn(f"Icon={APP_ID}", demo_entry)
+            self.assertTrue(next(line for line in demo_entry if line.startswith("Exec=")).endswith(" --demo"))
+            self.assertIn("NoDisplay=true", demo_entry)
 
             uninstall_res = subprocess.run(
                 ["bash", str(UNINSTALLER)],
@@ -97,6 +100,7 @@ class BundledIconTests(unittest.TestCase):
             self.assertFalse(app_svg.exists())
             self.assertFalse(sym_svg.exists())
             self.assertFalse(desktop.exists())
+            self.assertFalse(demo_desktop.exists())
 
 
 if __name__ == "__main__":

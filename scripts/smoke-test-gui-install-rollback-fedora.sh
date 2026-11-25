@@ -4,14 +4,24 @@
 # modifies native RGB kernel modules, or issues WMI/fan/power commands.
 set -Eeuo pipefail
 
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+case "$#:${1-}" in
+  0:) ;;
+  1:-h|1:--help)
+    echo "Usage: smoke-test-gui-install-rollback-fedora.sh [--help|--version]"
+    echo "Exercise upgrade and rollback using a temporary home."
+    exit 0 ;;
+  1:--version) exec bash "$repo_dir/scripts/install-fedora.sh" --version ;;
+  *) echo "Unsupported smoke-test argument. Use --help." >&2; exit 2 ;;
+esac
+
 if [[ ${EUID} -eq 0 ]]; then
   echo "Run as your regular user (not with sudo)." >&2
   exit 1
 fi
 
-repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 old_commit="v0.4.0-preview.4"
-new_version="Nitro Control 0.4.0-preview.5"
+new_version="$(bash "$repo_dir/scripts/install-fedora.sh" --version)"
 old_version="Nitro Control 0.4.0-preview.4"
 
 if ! command -v git >/dev/null || ! command -v tar >/dev/null; then
@@ -30,6 +40,9 @@ trap 'rm -rf -- "$temp_home_parent"' EXIT
 temp_home="$temp_home_parent/home"
 old_source="$temp_home_parent/old-source"
 mkdir -p -- "$temp_home" "$old_source"
+export XDG_CONFIG_HOME="$temp_home/.config"
+export XDG_CACHE_HOME="$temp_home/.cache"
+export XDG_DATA_HOME="$temp_home/.local/share"
 
 echo "== Preparing prior GUI source from reviewed rollback commit =="
 git -C "$repo_dir" archive "$old_commit" | tar -xf - -C "$old_source"
@@ -49,7 +62,7 @@ check_version() {
 }
 
 echo "== 1. Install previous GUI into isolated HOME =="
-HOME="$temp_home" bash "$old_source/scripts/install-fedora.sh"
+HOME="$temp_home" bash "$repo_dir/scripts/install-fedora.sh" --source "$old_source"
 check_version "$old_version"
 
 echo "== 2. Upgrade isolated HOME to release candidate =="
@@ -57,7 +70,7 @@ HOME="$temp_home" bash "$repo_dir/scripts/install-fedora.sh"
 check_version "$new_version"
 
 echo "== 3. Roll back isolated HOME to previous GUI =="
-HOME="$temp_home" bash "$old_source/scripts/install-fedora.sh"
+HOME="$temp_home" bash "$repo_dir/scripts/install-fedora.sh" --source "$old_source"
 check_version "$old_version"
 
 echo "== 4. Reinstall release candidate in isolated HOME =="

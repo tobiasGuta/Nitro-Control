@@ -34,6 +34,7 @@ class RGBCapability:
     description: str
     available: bool
     detail: str
+    effects_supported: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,13 +153,20 @@ class RGBHardware:
             if self._linuwu():
                 return RGBCapability("linuwu-sense", "Linuwu Sense", True, "Documented four-zone sysfs control detected")
             native = NativeRGB(self.root)
-            ready, detail = native.status()
+            ready, detail, eff = native.status_and_effects()
             if ready:
-                return RGBCapability("native-wmi", "Stock Acer WMI + one-shot helper",
-                                     True, detail)
+                return RGBCapability(
+                    "native-wmi", "Stock Acer WMI + one-shot helper",
+                    True, detail, effects_supported=eff,
+                )
+            return RGBCapability(
+                "none",
+                "Unavailable",
+                False,
+                f"WMI GUID present, but no supported RGB backend is active: {detail}",
+            )
         except RGBHardwareError as exc:
             return RGBCapability("none", "Unavailable", False, str(exc))
-        return RGBCapability("none", "Unavailable", False, "WMI GUID present, but no supported RGB sysfs writer is exposed")
 
     def apply(self, plan: LightingPlan) -> RGBWriteResult:
         if not isinstance(plan, LightingPlan):
@@ -179,7 +187,10 @@ class RGBHardware:
         raise RGBHardwareError("Unsupported RGB backend")
 
     def apply_effect(self, plan: EffectPlan) -> RGBWriteResult:
-        if self.probe().backend != "native-wmi":
+        cap = self.probe()
+        if not cap.available:
+            raise RGBHardwareError(cap.detail)
+        if cap.backend != "native-wmi":
             raise RGBHardwareError("Physical effects require the native Acer WMI backend")
         try:
             detail = NativeRGB(self.root).apply_effect(plan)

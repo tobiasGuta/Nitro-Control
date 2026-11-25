@@ -201,8 +201,16 @@ passwordless rule, kernel blacklist or third-party boot service is installed.
 ### Kernel upgrades and boot activation
 
 The module is **not** rebuilt automatically for new kernels. The controller
-selects `/usr/lib/modules/$(uname -r)/extra/nitro-control/linuwu_sense.ko` and
-checks `vermagic` and SHA-256. With no module for a newly booted kernel,
+selects `/usr/local/lib/nitro-control/modules/$(uname -r)/linuwu_sense.ko` (outside
+`depmod` autoload discovery paths) and checks `vermagic`, SHA-256, and Nitro Control
+provenance manifests (`--adopt-legacy` is required once when migrating or removing
+unmanifested pre-Phase-2 legacy files). Before migrating from an older build or
+uninstalling, quiesce Nitro Control and stop `nitro-control-rgb-driver.service`
+first so mixed-generation helpers/controllers never run concurrently. Both
+installation and uninstallation require verified service-disable status, clean
+`depmod -a` + `modprobe -R` alias clearance, and read-only `lsinitrd` checks
+(failing rather than claiming clearance if initramfs exposure remains). With no
+module for a newly booted kernel,
 `ExecCondition` skips the replacement. Stock `acer_wmi` remains unblacklisted.
 Rebuild and review the driver source for each new kernel, repeat the temporary
 RGB tests, then explicitly reinstall the matching `.ko`.

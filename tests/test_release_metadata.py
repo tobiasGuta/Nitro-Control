@@ -1,13 +1,12 @@
 """Offline release metadata contracts; no GUI, fans or firmware access."""
 from __future__ import annotations
 
-from pathlib import Path
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 from nitro_control import __version__
-
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -36,7 +35,7 @@ class ReleaseMetadataTests(unittest.TestCase):
 
     def test_gui_dependency_hint_includes_pycairo(self):
         launcher = (ROOT / "nitro_control" / "__main__.py").read_text()
-        installer = (ROOT / "scripts" / "install-fedora.sh").read_text()
+        installer = (ROOT / "scripts" / "gui_deploy.py").read_text()
         self.assertIn("python3-cairo", launcher)
         self.assertIn("python3-cairo", installer)
         self.assertIn("import cairo", installer)
@@ -49,7 +48,7 @@ class ReleaseMetadataTests(unittest.TestCase):
         # isolated HOME, so no live per-user GUI installation is replaced.
         self.assertIn('temp_home_parent="$(mktemp -d', content)
         self.assertIn('HOME="$temp_home" bash "$repo_dir/scripts/install-fedora.sh"', content)
-        self.assertIn('HOME="$temp_home" bash "$old_source/scripts/install-fedora.sh"', content)
+        self.assertIn('HOME="$temp_home" bash "$repo_dir/scripts/install-fedora.sh" --source "$old_source"', content)
         self.assertIn('git -C "$repo_dir" archive "$old_commit"', content)
         self.assertIn('check_version "$old_version"', content)
         self.assertIn('check_version "$new_version"', content)
@@ -62,6 +61,20 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("no manual fan pwm", notes.lower())
         self.assertIn("exactly 100%", notes)
         self.assertIn("issue #6", notes)
+
+
+    def test_ci_checks_every_shell_script_individually(self):
+        workflow = (ROOT / ".github" / "workflows" / "tests.yml").read_text(encoding="utf-8")
+        self.assertNotIn("run: bash -n scripts/*.sh", workflow)
+        self.assertIn('bash -n "$script"', workflow)
+        scripts = sorted([
+            *(ROOT / "scripts").glob("*.sh"),
+            *(ROOT / "experiments" / "acer-wmi-rgb-enable-poc").glob("*.sh"),
+        ])
+        self.assertGreater(len(scripts), 0)
+        for script in scripts:
+            with self.subTest(script=script.name):
+                subprocess.run(["bash", "-n", str(script)], check=True, timeout=15)
 
 
 if __name__ == "__main__":
