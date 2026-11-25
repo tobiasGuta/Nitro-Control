@@ -7,6 +7,7 @@ in CI to fail instead of skipping when `bwrap` is unavailable.
 """
 from __future__ import annotations
 
+import ast
 from concurrent.futures import ThreadPoolExecutor
 import fcntl
 import hashlib
@@ -14,6 +15,7 @@ import json
 import os
 from pathlib import Path
 import py_compile
+import re
 import shutil
 import stat
 import subprocess
@@ -30,7 +32,9 @@ from nitro_control.module_staging import (
     DRIVER_LIB_MANIFEST,
     ModuleStagingError,
     RGB_HELPER_MANIFEST,
+    RGB_HELPER_TX_FILE,
     SERVICE_MARKER,
+    _render_rgb_helper_launcher,
     acquire_private_locks,
     check_artifact_compatibility,
     check_installation_qualification,
@@ -44,7 +48,9 @@ from nitro_control.module_staging import (
     tx_json_name,
     uninstall_modules,
     uninstall_rgb_helper,
+    verify_privileged_rgb_helper,
     verify_privileged_runtime,
+    verify_dir_chain,
 )
 from nitro_control.native_rgb import NativeRGB
 from nitro_control.rgb_client import RGBClient
@@ -1523,6 +1529,256 @@ class StagingUnitLifecycleTests(unittest.TestCase):
                 ready_m, msg_m = check_unprivileged_readiness(root, "native-rgb", KVER_CUR)
             self.assertFalse(ready_m)
             self.assertIn("missing", msg_m or "")
+
+    def test_nc_q02_helper_lifecycle_with_stale_listings(self):
+        for initial in ("fresh", "legacy", "completed marker", "coherent", "interrupted removal"):
+            with self.subTest(initial=initial), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                (root / "run").mkdir()
+                (root / "usr").mkdir()
+                runner, _ = _fake_modinfo_runner(root)
+                libexec = root / "usr/local/libexec"
+                base = libexec / "nitro-control-rgb"
+                marker = base / RGB_HELPER_TX_FILE
+                manifest = base / RGB_HELPER_MANIFEST
+                launcher = libexec / "nitro-control-rgb-helper"
+                if initial == "legacy":
+                    libexec.mkdir(parents=True)
+                    launcher.write_text(
+                        '#!/usr/bin/python3 -I\nimport sys\nsys.path.insert(0, "/usr/local/libexec/nitro-control-rgb")\n'
+                        "from nitro_control.rgb_privileged import main\nraise SystemExit(main())\n",
+                        encoding="utf-8",
+                    )
+                elif initial in {"completed marker", "interrupted removal"}:
+                    def interrupt(stage):
+                        if stage == "after_manifest":
+                            raise RuntimeError("stopped after manifest")
+
+                    with self.assertRaisesRegex(RuntimeError, "stopped after manifest"):
+                        install_rgb_helper(root, REPO, runner=runner, on_stage=interrupt)
+                    self.assertEqual(json.loads(marker.read_bytes())["target_files"],
+                                     json.loads(manifest.read_bytes())["files"])
+                elif initial == "coherent":
+                    install_rgb_helper(root, REPO, runner=runner)
+
+                listdir = os.listdir
+                hidden = {RGB_HELPER_TX_FILE}
+
+                def stale_listdir(directory):
+                    return [name for name in listdir(directory) if name not in hidden]
+
+                with patch("nitro_control.module_staging.os.listdir", side_effect=stale_listdir):
+                    if initial in {"completed marker", "interrupted removal"}:
+                        with self.assertRaisesRegex(ModuleStagingError, "Interrupted RGB helper"):
+                            verify_privileged_rgb_helper(root)
+                    if initial != "interrupted removal":
+                        install_rgb_helper(root, REPO, adopt_legacy=initial == "legacy", runner=runner)
+                        self.assertFalse(marker.exists())
+                        with patch("nitro_control.rgb_client.shutil.which", return_value="/usr/bin/pkexec"):
+                            caps = RGBClient(launcher).capabilities()
+                        self.assertTrue(caps.static_supported and caps.effect_supported)
+                        self.assertEqual((caps.protocol, caps.state), (2, "coherent"))
+                    hidden.update((RGB_HELPER_MANIFEST, launcher.name, "rgb.py"))
+                    if initial != "interrupted removal":
+                        verify_privileged_rgb_helper(root)
+                    else:
+                        self.assertTrue(marker.is_file())
+                    (base / "foreign.txt").write_text("preserve", encoding="utf-8")
+                    (base / "nitro_control/custom.py").write_text("# preserve", encoding="utf-8")
+                    removed = uninstall_rgb_helper(root)["removed"]
+                self.assertIn(str(manifest), removed)
+                self.assertIn(str(launcher), removed)
+                self.assertFalse(marker.exists())
+                self.assertFalse(launcher.exists())
+                self.assertFalse((base / "nitro_control/rgb.py").exists())
+                self.assertTrue((base / "nitro_control/custom.py").exists())
+                self.assertEqual((base / "foreign.txt").read_text(encoding="utf-8"), "preserve")
+
+    def test_nc_q02_generated_launcher_verifies_known_paths_without_listings(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "run").mkdir()
+            (root / "usr").mkdir()
+            runner, _ = _fake_modinfo_runner(root)
+            install_rgb_helper(root, REPO, runner=runner)
+            # Run the generated pre-import guard only, with every lookup rooted in the fixture.
+            generated = ast.parse(_render_rgb_helper_launcher())
+            functions = [node for node in generated.body if isinstance(node, ast.FunctionDef)]
+            namespace = {"os": os, "stat": stat, "hashlib": hashlib, "json": json}
+            exec(compile(ast.Module(body=functions, type_ignores=[]), "<helper guard>", "exec"), namespace)
+            namespace["_open_dir_chain"] = lambda parts: verify_dir_chain(root, parts)
+            fstat = os.fstat
+            islink = os.path.islink
+
+            def namespace_root_stat(fd):
+                # Model files owned by UID 0 in the isolated fixture without changing ownership.
+                info = list(fstat(fd))
+                info[4] = 0
+                return os.stat_result(info)
+
+            with (patch("os.listdir", return_value=[]),
+                  patch("os.path.islink", side_effect=lambda path: islink(root / path.lstrip("/"))),
+                  patch("os.fstat", side_effect=namespace_root_stat)):
+                namespace["_verify_helper_coherence"]()
+                base = root / "usr/local/libexec/nitro-control-rgb"
+                (base / RGB_HELPER_TX_FILE).touch()
+                with self.assertRaisesRegex(RuntimeError, "Interrupted RGB helper"):
+                    namespace["_verify_helper_coherence"]()
+
+    def test_nc_q02_stale_listings_cannot_hide_foreign_helper_artifacts(self):
+        for kind in ("foreign", "symlink", "hardlink", "untrusted owner", "modified digest"):
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                (root / "run").mkdir()
+                libexec = root / "usr/local/libexec"
+                libexec.mkdir(parents=True)
+                runner, _ = _fake_modinfo_runner(root)
+                launcher = libexec / "nitro-control-rgb-helper"
+                messages = {
+                    "foreign": "Foreign file occupies",
+                    "symlink": "Cannot safely open",
+                    "hardlink": "unexpected hardlink count",
+                    "untrusted owner": "untrusted owner",
+                    "modified digest": "locally modified manifested",
+                }
+                if kind == "foreign":
+                    launcher.write_bytes(b"# unrelated executable\n")
+                elif kind == "symlink":
+                    launcher.symlink_to(root / "missing")
+                elif kind == "hardlink":
+                    neighbor = root / "neighbor"
+                    neighbor.write_bytes(b"preserve this file\n")
+                    os.link(neighbor, launcher)
+                else:
+                    install_rgb_helper(root, REPO, runner=runner)
+                    if kind == "modified digest":
+                        launcher.write_bytes(launcher.read_bytes() + b"# local change\n")
+
+                original = launcher.lstat()
+                original_contents = launcher.readlink() if launcher.is_symlink() else launcher.read_bytes()
+                fstat = os.fstat
+
+                def check_owner(fd):
+                    info = fstat(fd)
+                    if kind == "untrusted owner" and (info.st_dev, info.st_ino) == (original.st_dev, original.st_ino):
+                        values = list(info)
+                        values[4] = original.st_uid + 1
+                        return os.stat_result(values)
+                    return info
+
+                with (patch("os.listdir", return_value=[]), patch("os.fstat", side_effect=check_owner)):
+                    with self.assertRaisesRegex(ModuleStagingError, messages[kind]):
+                        install_rgb_helper(root, REPO, adopt_legacy=True, runner=runner)
+                    with self.assertRaisesRegex(ModuleStagingError, messages[kind]):
+                        uninstall_rgb_helper(root, adopt_legacy=True)
+                after = launcher.lstat()
+                self.assertEqual((after.st_ino, after.st_mode, after.st_nlink),
+                                 (original.st_ino, original.st_mode, original.st_nlink))
+                self.assertEqual(launcher.readlink() if launcher.is_symlink() else launcher.read_bytes(),
+                                 original_contents)
+
+    def test_nc_q02_module_migration_and_uninstall_with_stale_listings(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _prepare_native_sysfs(root)
+            runner, _ = _fake_modinfo_runner(root)
+            name = "nitro_rgb_enable_poc.ko"
+            source = _make_dummy_ko(root / "src" / name, "nitro_rgb_enable_poc", KVER_CUR)
+            legacy = _make_dummy_ko(root / f"usr/lib/modules/{KVER_OLD}/extra/nitro-control" / name,
+                                    "nitro_rgb_enable_poc", KVER_OLD)
+            _write_sha256(legacy)
+            private = root / "usr/local/lib/nitro-control/modules"
+            hidden = {name, f"{name}.sha256", manifest_name(name), tx_json_name(name), tx_dir_name(name)}
+            listdir = os.listdir
+
+            def stale_listdir(directory):
+                return [name for name in listdir(directory) if name not in hidden]
+
+            with patch("nitro_control.module_staging.os.listdir", side_effect=stale_listdir):
+                stage_install(root, "native-rgb", KVER_CUR, source, adopt_legacy=True, runner=runner)
+                self.assertFalse(legacy.exists())
+                self.assertTrue((private / KVER_OLD / name).exists())
+
+                def interrupt(stage):
+                    if stage == "after_tx_prepare":
+                        raise RuntimeError("module interrupted after prepare")
+
+                upgrade = _make_dummy_ko(root / "upgrade" / name, "nitro_rgb_enable_poc", KVER_CUR, params="v2")
+                with self.assertRaisesRegex(RuntimeError, "module interrupted after prepare"):
+                    stage_install(root, "native-rgb", KVER_CUR, upgrade, runner=runner, on_commit_stage=interrupt)
+                tx_dir = private / KVER_CUR / tx_dir_name(name)
+                staged = tx_dir / name
+                staged.write_bytes(b"locally modified")
+                with self.assertRaisesRegex(ModuleStagingError, "does not match transaction digest"):
+                    stage_install(root, "native-rgb", KVER_CUR, upgrade, runner=runner)
+                self.assertEqual(staged.read_bytes(), b"locally modified")
+                staged.write_bytes(upgrade.read_bytes())
+                stage_install(root, "native-rgb", KVER_CUR, upgrade, runner=runner)
+                verify_privileged_runtime(root, "native-rgb", KVER_CUR, runner=runner)
+                self.assertTrue(uninstall_modules(root, "native-rgb", KVER_CUR, runner=runner)["removed"])
+                self.assertFalse((private / KVER_CUR / name).exists())
+                self.assertFalse((private / KVER_OLD / name).exists())
+
+    def test_nc_q01_documented_direct_shell_entry_points_are_executable(self):
+        command = re.compile(r"^\s*(?:\|\s*`\s*)?(?:sudo\s+)?\./(scripts/[\w.-]+\.sh)\b", re.MULTILINE)
+        direct = {entry for doc in (REPO / "README.md", *(REPO / "docs").rglob("*.md"))
+                  for entry in command.findall(doc.read_text(encoding="utf-8"))}
+        self.assertIn("scripts/uninstall-native-rgb-fedora.sh", direct)
+        for entry in sorted(direct):
+            with self.subTest(entry=entry):
+                self.assertTrue((REPO / entry).stat().st_mode & stat.S_IXUSR)
+
+    def test_nc_q02_helper_finalization_errors_and_recovery(self):
+        for fault in ("unlink denied", "unlink ineffective", "manifest", "source", "launcher mode"):
+            with self.subTest(fault=fault), tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                (root / "run").mkdir()
+                (root / "usr").mkdir()
+                runner, _ = _fake_modinfo_runner(root)
+                libexec = root / "usr/local/libexec"
+                base = libexec / "nitro-control-rgb"
+                marker = base / RGB_HELPER_TX_FILE
+                unlink = os.unlink
+                replace = os.replace
+                changed = []
+
+                def faulty_unlink(name, *, dir_fd=None):
+                    if name == RGB_HELPER_TX_FILE:
+                        if fault == "unlink denied":
+                            raise PermissionError("simulated unlink denial")
+                        if fault == "unlink ineffective":
+                            return
+                    unlink(name, dir_fd=dir_fd)
+
+                def faulty_publish(src, dst, **kwargs):
+                    replace(src, dst, **kwargs)
+                    if dst != RGB_HELPER_MANIFEST:
+                        return
+                    if fault == "manifest":
+                        path = base / RGB_HELPER_MANIFEST
+                        changed.append((path, path.read_bytes()))
+                        manifest = json.loads(path.read_bytes())
+                        manifest["authorization"] = "auth_self"
+                        path.write_text(json.dumps(manifest), encoding="utf-8")
+                    elif fault == "source":
+                        path = base / "nitro_control/rgb.py"
+                        changed.append((path, path.read_bytes()))
+                        path.write_bytes(b"# unexpected content\n")
+                    elif fault == "launcher mode":
+                        (libexec / "nitro-control-rgb-helper").chmod(0o644)
+
+                with (patch("nitro_control.module_staging.os.unlink", side_effect=faulty_unlink),
+                      patch("nitro_control.module_staging.os.replace", side_effect=faulty_publish),
+                      self.assertRaises(ModuleStagingError)):
+                    install_rgb_helper(root, REPO, runner=runner)
+                self.assertTrue(marker.is_file())
+                with self.assertRaisesRegex(ModuleStagingError, "Interrupted RGB helper"):
+                    verify_privileged_rgb_helper(root)
+                for path, data in changed:
+                    path.write_bytes(data)
+                install_rgb_helper(root, REPO, runner=runner)
+                self.assertFalse(marker.exists())
+                verify_privileged_rgb_helper(root)
 
     def test_h_p2_r09_rgb_helper_provenance_adoption_upgrade_and_preservation(self):
         with tempfile.TemporaryDirectory() as td:

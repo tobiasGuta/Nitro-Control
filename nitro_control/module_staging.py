@@ -5,6 +5,7 @@ import argparse
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
+import errno
 import fcntl
 import hashlib
 import importlib.util
@@ -166,6 +167,47 @@ def _fsync_dir(dir_fd: int) -> None:
         pass
 
 
+def _entry_exists(dir_fd: int, name: str) -> bool:
+    """Look up a known name without following links or using a directory listing."""
+    try:
+        os.lstat(name, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return False
+    except OSError as exc:
+        raise ModuleStagingError(f"Cannot inspect {name}: {exc}") from exc
+    return True
+
+
+def _remove_verified_entry(dir_fd: int, name: str) -> None:
+    try:
+        os.unlink(name, dir_fd=dir_fd)
+    except OSError as exc:
+        raise ModuleStagingError(f"Cannot remove {name}: {exc}") from exc
+    if _entry_exists(dir_fd, name):
+        raise ModuleStagingError(f"Removal left {name} in place")
+
+
+def _remove_empty_dir(dir_fd: int, name: str) -> None:
+    try:
+        os.rmdir(name, dir_fd=dir_fd)
+    except OSError as exc:
+        if exc.errno not in {errno.ENOENT, errno.ENOTEMPTY, errno.EEXIST}:
+            raise ModuleStagingError(f"Cannot remove empty directory {name}: {exc}") from exc
+
+
+def _scan_verified_dir(dir_fd: int) -> list[str]:
+    """Discover unknown names using a fresh directory description anchored to a verified fd."""
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    try:
+        scan_fd = os.open(".", flags, dir_fd=dir_fd)
+        try:
+            return os.listdir(scan_fd)
+        finally:
+            os.close(scan_fd)
+    except OSError as exc:
+        raise ModuleStagingError(f"Cannot scan verified directory: {exc}") from exc
+
+
 def verify_dir_chain(
     root: Path,
     parts: tuple[str, ...],
@@ -174,12 +216,13 @@ def verify_dir_chain(
     new_dir_mode: int = 0o755,
     leaf_mode: int | None = None,
     allowed_uids: set[int] | None = None,
+    parent_fd: int | None = None,
 ) -> int:
-    """Walk `parts` from `root` via dir_fd + O_NOFOLLOW and verify ownership/modes."""
+    """Walk from a verified parent fd or open `root`, checking ownership and modes."""
     uids = allowed_uids if allowed_uids is not None else allowed_root_uids(root)
     flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
     try:
-        root_fd = os.open(root, flags)
+        root_fd = os.open(root, flags) if parent_fd is None else os.dup(parent_fd)
     except OSError as exc:
         raise ModuleStagingError(f"Root directory {root} unavailable: {exc}") from exc
     cur_fd = root_fd
@@ -501,40 +544,42 @@ def _clear_tx_artifacts(root: Path, dir_fd: int, dir_path: Path, spec: Component
     man_name = manifest_name(ko_name)
     expected_tx_entries = {ko_name: 0o644, sha_name: 0o600, man_name: 0o600}
     tx_dir = dir_path / tx_dir_name(ko_name)
-    if tx_dir.is_symlink():
-        raise ModuleStagingError(f"Refusing symlinked transaction directory {tx_dir}")
-    if tx_dir.exists():
-        tx_fd = verify_dir_chain(dir_path, (tx_dir_name(ko_name),), leaf_mode=0o700,
-                                 allowed_uids=uids)
+    if _entry_exists(dir_fd, tx_dir.name):
+        tx_fd = verify_dir_chain(dir_path, (tx_dir.name,), leaf_mode=0o700,
+                                 allowed_uids=uids, parent_fd=dir_fd)
         try:
-            items = os.listdir(tx_fd)
-            unexpected = [item for item in items if item not in expected_tx_entries]
+            unexpected = set(_scan_verified_dir(tx_fd)) - expected_tx_entries.keys()
             if unexpected:
                 raise ModuleStagingError(
                     f"Unexpected entry inside transaction directory {tx_dir}: {', '.join(sorted(unexpected))}"
                 )
+            items = [item for item in expected_tx_entries if _entry_exists(tx_fd, item)]
             for item in items:
                 open_regular_ro(
                     item, dir_fd=tx_fd, allowed_uids=uids,
                     exact_mode=expected_tx_entries[item], label=str(tx_dir / item),
                 )
             for item in items:
-                os.unlink(item, dir_fd=tx_fd)
+                _remove_verified_entry(tx_fd, item)
             _fsync_dir(tx_fd)
         finally:
             os.close(tx_fd)
-        os.rmdir(tx_dir_name(ko_name), dir_fd=dir_fd)
+        try:
+            os.rmdir(tx_dir.name, dir_fd=dir_fd)
+        except OSError as exc:
+            raise ModuleStagingError(f"Cannot remove transaction directory {tx_dir}: {exc}") from exc
+        if _entry_exists(dir_fd, tx_dir.name):
+            raise ModuleStagingError(f"Removal left transaction directory {tx_dir} in place")
     tx_json = dir_path / tx_json_name(ko_name)
-    if tx_json.is_symlink():
-        raise ModuleStagingError(f"Refusing symlinked transaction file {tx_json}")
-    if tx_json.exists():
+    if _entry_exists(dir_fd, tx_json.name):
         open_regular_ro(tx_json_name(ko_name), dir_fd=dir_fd, allowed_uids=uids, exact_mode=0o600, label=str(tx_json))
-        os.unlink(tx_json_name(ko_name), dir_fd=dir_fd)
+        _remove_verified_entry(dir_fd, tx_json.name)
     _fsync_dir(dir_fd)
 
 
 def _validate_tx_dir_contents(
     root: Path,
+    dir_fd: int,
     dir_path: Path,
     spec: ComponentSpec,
     kernel: str,
@@ -546,22 +591,21 @@ def _validate_tx_dir_contents(
     man_name = manifest_name(ko_name)
     expected_tx_entries = {ko_name: 0o644, sha_name: 0o600, man_name: 0o600}
     tx_dir = dir_path / tx_dir_name(ko_name)
-    if tx_dir.is_symlink():
-        raise ModuleStagingError(f"Refusing symlinked transaction directory {tx_dir}")
-    if not tx_dir.exists():
+    if not _entry_exists(dir_fd, tx_dir.name):
         return
-    tx_fd = verify_dir_chain(dir_path, (tx_dir_name(ko_name),), leaf_mode=0o700, allowed_uids=uids)
+    tx_fd = verify_dir_chain(dir_path, (tx_dir.name,), leaf_mode=0o700, allowed_uids=uids, parent_fd=dir_fd)
     try:
-        items = os.listdir(tx_fd)
-        unexpected = [item for item in items if item not in expected_tx_entries]
+        unexpected = set(_scan_verified_dir(tx_fd)) - expected_tx_entries.keys()
         if unexpected:
             raise ModuleStagingError(
                 f"Unexpected entry inside transaction directory {tx_dir}: {', '.join(sorted(unexpected))}"
             )
-        for item in items:
+        for item, mode in expected_tx_entries.items():
+            if not _entry_exists(tx_fd, item):
+                continue
             _, raw = open_regular_ro(
                 item, dir_fd=tx_fd, allowed_uids=uids,
-                exact_mode=expected_tx_entries[item], label=str(tx_dir / item),
+                exact_mode=mode, label=str(tx_dir / item),
             )
             if item == ko_name and hashlib.sha256(raw).hexdigest() != target_sha:
                 raise ModuleStagingError(f"Staged module inside {tx_dir} does not match transaction digest")
@@ -597,15 +641,18 @@ def _inspect_location(
     tx_j_name = tx_json_name(ko_name)
     tx_d_name = tx_dir_name(ko_name)
 
-    entries = set(os.listdir(dir_fd))
-    stray_tmps = [e for e in entries if e.startswith((f".{ko_name}.tmp.", f".{ko_name}.sha256.tmp."))]
-    if stray_tmps and tx_j_name not in entries:
+    has_tx = _entry_exists(dir_fd, tx_j_name)
+    has_ko = _entry_exists(dir_fd, ko_name)
+    has_sha = _entry_exists(dir_fd, sha_name)
+    has_man = _entry_exists(dir_fd, man_name)
+    stray_tmps = [e for e in _scan_verified_dir(dir_fd) if e.startswith((f".{ko_name}.tmp.", f".{ko_name}.sha256.tmp."))]
+    if stray_tmps and not has_tx:
         raise ModuleStagingError(
             f"Ambiguous temporary files without Nitro transaction marker in {dir_path}: {', '.join(sorted(stray_tmps))}"
         )
 
-    if tx_j_name in entries or tx_d_name in entries:
-        if tx_j_name not in entries:
+    if has_tx or _entry_exists(dir_fd, tx_d_name):
+        if not has_tx:
             raise ModuleStagingError(
                 f"Ambiguous staging directory {dir_path / tx_d_name} without Nitro transaction marker"
             )
@@ -617,10 +664,10 @@ def _inspect_location(
         if tx["previous_sha256"] is not None:
             allowed_hashes.add(tx["previous_sha256"])
 
-        _validate_tx_dir_contents(root, dir_path, spec, kernel, str(tx["target_sha256"]))
+        _validate_tx_dir_contents(root, dir_fd, dir_path, spec, kernel, str(tx["target_sha256"]))
 
         cur_sha: str | None = None
-        if ko_name in entries or (dir_path / ko_name).is_symlink():
+        if has_ko:
             _, ko_bytes = open_regular_ro(
                 ko_name, dir_fd=dir_fd, allowed_uids=strict_uids, label=str(dir_path / ko_name)
             )
@@ -629,7 +676,7 @@ def _inspect_location(
                 raise ModuleStagingError(
                     f"Existing {dir_path / ko_name} digest does not match interrupted Nitro transaction; preserving file"
                 )
-        if sha_name in entries or (dir_path / sha_name).is_symlink():
+        if has_sha:
             _, sha_raw = open_regular_ro(
                 sha_name, dir_fd=dir_fd, allowed_uids=strict_uids, exact_mode=0o600, label=str(dir_path / sha_name)
             )
@@ -638,7 +685,7 @@ def _inspect_location(
                 raise ModuleStagingError(
                     f"Existing {dir_path / sha_name} does not match interrupted Nitro transaction; preserving file"
                 )
-        if man_name in entries or (dir_path / man_name).is_symlink():
+        if has_man:
             _, man_raw = open_regular_ro(
                 man_name, dir_fd=dir_fd, allowed_uids=strict_uids, exact_mode=0o600, label=str(dir_path / man_name)
             )
@@ -654,9 +701,6 @@ def _inspect_location(
                 )
         return "interrupted", cur_sha
 
-    has_ko = ko_name in entries
-    has_sha = sha_name in entries
-    has_man = man_name in entries
     if not has_ko and not has_sha and not has_man:
         return "absent", None
     if not has_ko:
@@ -718,7 +762,8 @@ def _commit_module_transaction(
 
     _clear_tx_artifacts(root, dir_fd, dir_path, spec)
     tx_fd = verify_dir_chain(
-        dir_path, (tx_d_name,), create_from_index=0, new_dir_mode=0o700, leaf_mode=0o700, allowed_uids=uids
+        dir_path, (tx_d_name,), create_from_index=0, new_dir_mode=0o700, leaf_mode=0o700,
+        allowed_uids=uids, parent_fd=dir_fd,
     )
     committed_tx_marker = False
     try:
@@ -764,23 +809,23 @@ def _commit_module_transaction(
         if on_stage is not None:
             on_stage("after_tx_prepare")
 
-        if (dir_path / man_name).exists():
-            os.unlink(man_name, dir_fd=dir_fd)
+        if _entry_exists(dir_fd, man_name):
+            _remove_verified_entry(dir_fd, man_name)
             _fsync_dir(dir_fd)
         if on_stage is not None:
             on_stage("after_manifest_unlink")
 
-        os.replace(staged_ko, dir_path / ko_name)
+        os.replace(ko_name, ko_name, src_dir_fd=tx_fd, dst_dir_fd=dir_fd)
         _fsync_dir(dir_fd)
         if on_stage is not None:
             on_stage("after_ko_replace")
 
-        os.replace(dir_path / tx_d_name / sha_name, dir_path / sha_name)
+        os.replace(sha_name, sha_name, src_dir_fd=tx_fd, dst_dir_fd=dir_fd)
         _fsync_dir(dir_fd)
         if on_stage is not None:
             on_stage("after_sha_replace")
 
-        os.replace(dir_path / tx_d_name / man_name, dir_path / man_name)
+        os.replace(man_name, man_name, src_dir_fd=tx_fd, dst_dir_fd=dir_fd)
         _fsync_dir(dir_fd)
         if on_stage is not None:
             on_stage("after_manifest_commit")
@@ -1373,7 +1418,7 @@ def _ensure_disabled_unit(systemctl_bin: str, runner: Runner) -> None:
 
 
 def _driver_lib_manifest_valid(lib_dir_fd: int, lib_dir: Path, uids: set[int]) -> bool:
-    if DRIVER_LIB_MANIFEST not in os.listdir(lib_dir_fd):
+    if not _entry_exists(lib_dir_fd, DRIVER_LIB_MANIFEST):
         return False
     _, raw = open_regular_ro(DRIVER_LIB_MANIFEST, dir_fd=lib_dir_fd, allowed_uids=uids, exact_mode=0o600,
                              label=str(lib_dir / DRIVER_LIB_MANIFEST))
@@ -1414,7 +1459,7 @@ def _install_controller_and_unit(
     unit_dir_fd = verify_dir_chain(root, ("etc", "systemd", "system"), create_from_index=1, new_dir_mode=0o755, allowed_uids=uids)
     try:
         ctrl_path = root / "usr/local/libexec/nitro-control-rgb-driver"
-        if "nitro-control-rgb-driver" in os.listdir(libexec_fd) or ctrl_path.is_symlink():
+        if _entry_exists(libexec_fd, ctrl_path.name):
             _, existing_ctrl = open_regular_ro("nitro-control-rgb-driver", dir_fd=libexec_fd, allowed_uids=uids, label=str(ctrl_path))
             text = existing_ctrl.decode("utf-8", errors="replace")
             if CONTROLLER_MARKER not in text:
@@ -1422,7 +1467,7 @@ def _install_controller_and_unit(
                     raise ModuleStagingError(f"Controller path {ctrl_path} lacks Nitro Control ownership marker; pass --adopt-legacy after inspection")
 
         svc_path = root / "etc/systemd/system/nitro-control-rgb-driver.service"
-        if "nitro-control-rgb-driver.service" in os.listdir(unit_dir_fd) or svc_path.is_symlink():
+        if _entry_exists(unit_dir_fd, svc_path.name):
             _, existing_svc = open_regular_ro("nitro-control-rgb-driver.service", dir_fd=unit_dir_fd, allowed_uids=uids, label=str(svc_path))
             if SERVICE_MARKER not in existing_svc.decode("utf-8", errors="replace"):
                 raise ModuleStagingError(f"Service path {svc_path} is occupied by an unrelated unit; refusing overwrite")
@@ -1436,15 +1481,15 @@ def _install_controller_and_unit(
         )
         try:
             lib_dir = root / "usr/local/libexec/nitro-control-rgb-driver-lib/nitro_control"
-            existing_lib_entries = set(os.listdir(lib_fd))
-            if existing_lib_entries & {"__init__.py", "module_staging.py", DRIVER_LIB_MANIFEST}:
+            lib_entries = ("__init__.py", "module_staging.py", DRIVER_LIB_MANIFEST)
+            if any(_entry_exists(lib_fd, name) for name in lib_entries):
                 if not _driver_lib_manifest_valid(lib_fd, lib_dir, uids):
                     if not adopt_legacy:
                         raise ModuleStagingError(
                             f"Existing driver library files in {lib_dir} lack Nitro provenance manifest; pass --adopt-legacy"
                         )
                     for fname in ("__init__.py", "module_staging.py"):
-                        if fname in existing_lib_entries or (lib_dir / fname).is_symlink():
+                        if _entry_exists(lib_fd, fname):
                             open_regular_ro(fname, dir_fd=lib_fd, allowed_uids=uids, label=str(lib_dir / fname))
 
             pkg_root = Path(__file__).resolve().parent
@@ -1453,10 +1498,10 @@ def _install_controller_and_unit(
                 src_bytes = _read_source_bytes((pkg_root / mod_name).resolve(), reject_world_write=True)
                 lib_hashes[mod_name] = hashlib.sha256(src_bytes).hexdigest()
                 tmp_py = f".{mod_name}.tmp.{os.getpid()}"
-                if (lib_dir / tmp_py).exists() or (lib_dir / tmp_py).is_symlink():
-                    os.unlink(tmp_py, dir_fd=lib_fd)
+                if _entry_exists(lib_fd, tmp_py):
+                    _remove_verified_entry(lib_fd, tmp_py)
                 _write_private_file(lib_fd, tmp_py, src_bytes, 0o644)
-                os.replace(lib_dir / tmp_py, lib_dir / mod_name)
+                os.replace(tmp_py, mod_name, src_dir_fd=lib_fd, dst_dir_fd=lib_fd)
 
             lib_manifest = {
                 "managed_by": MANAGED_BY,
@@ -1465,10 +1510,10 @@ def _install_controller_and_unit(
                 "files": lib_hashes,
             }
             tmp_man = f".{DRIVER_LIB_MANIFEST}.tmp.{os.getpid()}"
-            if (lib_dir / tmp_man).exists() or (lib_dir / tmp_man).is_symlink():
-                os.unlink(tmp_man, dir_fd=lib_fd)
+            if _entry_exists(lib_fd, tmp_man):
+                _remove_verified_entry(lib_fd, tmp_man)
             _write_private_file(lib_fd, tmp_man, (json.dumps(lib_manifest, sort_keys=True) + "\n").encode("utf-8"), 0o600)
-            os.replace(lib_dir / tmp_man, lib_dir / DRIVER_LIB_MANIFEST)
+            os.replace(tmp_man, DRIVER_LIB_MANIFEST, src_dir_fd=lib_fd, dst_dir_fd=lib_fd)
             _fsync_dir(lib_fd)
         finally:
             os.close(lib_fd)
@@ -1669,8 +1714,8 @@ def stage_install(
                         on_stage=on_migration_stage,
                     )
                     for fname in (spec.module_file, f"{spec.module_file}.sha256", manifest_name(spec.module_file)):
-                        if (leg_dir / fname).exists():
-                            os.unlink(fname, dir_fd=leg_fd)
+                            if _entry_exists(leg_fd, fname):
+                                _remove_verified_entry(leg_fd, fname)
                     _fsync_dir(leg_fd)
                     if on_migration_stage is not None:
                         on_migration_stage("after_legacy_unlink")
@@ -2032,8 +2077,8 @@ def _cleanup_single_dir(
         _clear_tx_artifacts(root, dir_fd, dir_path, spec)
     removed = False
     for fname in (spec.module_file, f"{spec.module_file}.sha256", manifest_name(spec.module_file)):
-        if (dir_path / fname).exists():
-            os.unlink(fname, dir_fd=dir_fd)
+        if _entry_exists(dir_fd, fname):
+            _remove_verified_entry(dir_fd, fname)
             removed = True
     _fsync_dir(dir_fd)
     return removed
@@ -2080,23 +2125,23 @@ def _remove_unit_and_controller(root: Path, *, adopt_legacy: bool, runner: Runne
             lfd = verify_dir_chain(root, ("usr", "local", "libexec", "nitro-control-rgb-driver-lib", "nitro_control"), allowed_uids=uids)
             try:
                 lib_pkg_dir = lib_root / "nitro_control"
-                entries = set(os.listdir(lfd))
-                if entries & {"__init__.py", "module_staging.py", DRIVER_LIB_MANIFEST}:
+                lib_entries = ("__init__.py", "module_staging.py", DRIVER_LIB_MANIFEST)
+                if any(_entry_exists(lfd, name) for name in lib_entries):
                     if not _driver_lib_manifest_valid(lfd, lib_pkg_dir, uids):
                         if not adopt_legacy:
                             raise ModuleStagingError(
                                 f"Driver library in {lib_pkg_dir} lacks Nitro provenance manifest; pass --adopt-legacy"
                             )
                         for fname in ("__init__.py", "module_staging.py"):
-                            if fname in entries or (lib_pkg_dir / fname).is_symlink():
+                            if _entry_exists(lfd, fname):
                                 _, fbytes = open_regular_ro(fname, dir_fd=lfd, allowed_uids=uids, exact_mode=0o644,
                                                             label=str(lib_pkg_dir / fname))
                                 marker = b"Nitro Control" if fname == "__init__.py" else b"nitro_control.module_staging"
                                 if marker not in fbytes:
                                     raise ModuleStagingError(f"Unrecognized file {lib_pkg_dir / fname}; preserving")
-                    for fname in ("__init__.py", "module_staging.py", DRIVER_LIB_MANIFEST):
-                        if (lib_pkg_dir / fname).exists():
-                            os.unlink(fname, dir_fd=lfd)
+                    for fname in lib_entries:
+                        if _entry_exists(lfd, fname):
+                            _remove_verified_entry(lfd, fname)
                     _fsync_dir(lfd)
             finally:
                 os.close(lfd)
@@ -2385,13 +2430,11 @@ def _clean_pycache_in_dir(
 ) -> None:
     """Remove only verified Nitro-owned `.pyc` entries inside `__pycache__`, preserving ambiguous/unrelated files."""
     cache_path = parent_path / "__pycache__"
-    if cache_path.is_symlink():
-        raise ModuleStagingError(f"Refusing symlinked cache directory {cache_path}")
-    if not cache_path.exists():
+    if not _entry_exists(parent_fd, cache_path.name):
         return
-    cfd = verify_dir_chain(parent_path, ("__pycache__",), allowed_uids=uids)
+    cfd = verify_dir_chain(parent_path, (cache_path.name,), allowed_uids=uids, parent_fd=parent_fd)
     try:
-        for entry in list(os.listdir(cfd)):
+        for entry in _scan_verified_dir(cfd):
             entry_path = cache_path / entry
             match = _PYC_NAME_RE.fullmatch(entry)
             if not match:
@@ -2400,8 +2443,6 @@ def _clean_pycache_in_dir(
             if stem not in owned_stems:
                 continue
             opt_level = int(match.group(2)) if match.group(2) else 0
-            if entry_path.is_symlink():
-                raise ModuleStagingError(f"Refusing symlinked bytecode cache entry {entry_path}")
             _, raw = open_regular_ro(entry, dir_fd=cfd, allowed_uids=uids, label=str(entry_path))
             mode = os.stat(entry, dir_fd=cfd, follow_symlinks=False).st_mode
             candidate_filenames = (
@@ -2417,14 +2458,11 @@ def _clean_pycache_in_dir(
                 candidate_filenames=candidate_filenames,
             ):
                 continue
-            os.unlink(entry, dir_fd=cfd)
+            _remove_verified_entry(cfd, entry)
         _fsync_dir(cfd)
     finally:
         os.close(cfd)
-    try:
-        os.rmdir("__pycache__", dir_fd=parent_fd)
-    except OSError:
-        pass
+    _remove_empty_dir(parent_fd, cache_path.name)
 
 
 def _render_rgb_helper_launcher() -> bytes:
@@ -2485,6 +2523,12 @@ def _render_rgb_helper_launcher() -> bytes:
         '        return b"".join(chunks)\n'
         "    finally:\n"
         "        os.close(fd)\n"
+        "def _entry_exists(dir_fd, name):\n"
+        "    try:\n"
+        "        os.lstat(name, dir_fd=dir_fd)\n"
+        "    except FileNotFoundError:\n"
+        "        return False\n"
+        "    return True\n"
         "def _verify_helper_coherence():\n"
         f"    expected = {expected_files!r}\n"
         '    libexec_fd = _open_dir_chain(("usr", "local", "libexec"))\n'
@@ -2492,9 +2536,9 @@ def _render_rgb_helper_launcher() -> bytes:
         '    base_fd = _open_dir_chain(("usr", "local", "libexec", "nitro-control-rgb"))\n'
         '    pkg_fd = _open_dir_chain(("usr", "local", "libexec", "nitro-control-rgb", "nitro_control"))\n'
         "    try:\n"
-        '        if os.path.islink("/usr/local/libexec/nitro-control-rgb/.tx.rgb-helper.json") or ".tx.rgb-helper.json" in os.listdir(base_fd):\n'
+        '        if _entry_exists(base_fd, ".tx.rgb-helper.json"):\n'
         '            raise RuntimeError("Interrupted RGB helper installation detected; re-run sudo ./scripts/install-rgb-helper-fedora.sh before use")\n'
-        '        if os.path.islink("/usr/local/libexec/nitro-control-rgb/manifest.json") or "manifest.json" not in os.listdir(base_fd):\n'
+        '        if not _entry_exists(base_fd, "manifest.json"):\n'
         '            raise RuntimeError("RGB helper provenance manifest is missing or unsafe; re-run sudo ./scripts/install-rgb-helper-fedora.sh")\n'
         '        mraw = _read_reg(base_fd, "manifest.json", "/usr/local/libexec/nitro-control-rgb/manifest.json", exact_mode=0o644)\n'
         '        manifest = json.loads(mraw.decode("utf-8"))\n'
@@ -2519,9 +2563,11 @@ def _render_rgb_helper_launcher() -> bytes:
         '                dfd, entry, path = pkg_fd, fname, f"/usr/local/libexec/nitro-control-rgb/nitro_control/{fname}"\n'
         "            else:\n"
         "                dfd, entry, path = locs[key]\n"
-        "            if os.path.islink(path) or entry not in os.listdir(dfd):\n"
-        '                raise RuntimeError(f"Incomplete RGB helper installation: missing {path}")\n'
-        "            digest = hashlib.sha256(_read_reg(dfd, entry, path)).hexdigest()\n"
+        "            try:\n"
+        "                raw = _read_reg(dfd, entry, path)\n"
+        "            except FileNotFoundError as exc:\n"
+        '                raise RuntimeError(f"Incomplete RGB helper installation: missing {path}") from exc\n'
+        "            digest = hashlib.sha256(raw).hexdigest()\n"
         "            if digest != files_map.get(key):\n"
         '                raise RuntimeError(f"RGB helper integrity mismatch at {path}; re-run sudo ./scripts/install-rgb-helper-fedora.sh")\n'
         "    finally:\n"
@@ -2696,16 +2742,13 @@ def _read_existing_rgb_helper_files(
     polkit_fd: int | None,
     pkg_fd: int | None,
     uids: set[int],
+    *,
+    verify_modes: bool = False,
 ) -> tuple[dict[str, tuple[str, bytes]], dict[str, Path]]:
     """Verify non-symlink, regular file, root ownership and compute SHA-256 of present helper files."""
     launcher_path = root / "usr/local/libexec/nitro-control-rgb-helper"
     policy_path = root / "usr/share/polkit-1/actions/io.github.tobiasguta.NitroControl.rgb.policy"
     pkg_dir = root / "usr/local/libexec/nitro-control-rgb/nitro_control"
-
-    if launcher_path.is_symlink():
-        raise ModuleStagingError(f"Refusing symlinked launcher at {launcher_path}")
-    if policy_path.is_symlink():
-        raise ModuleStagingError(f"Refusing symlinked Polkit policy at {policy_path}")
 
     found: dict[str, tuple[str, bytes]] = {}
     key_paths: dict[str, Path] = {
@@ -2714,24 +2757,24 @@ def _read_existing_rgb_helper_files(
         **{f"nitro_control/{f}": pkg_dir / f for f in RGB_HELPER_FILES},
     }
 
-    if libexec_fd is not None and "nitro-control-rgb-helper" in os.listdir(libexec_fd):
-        _, lraw = open_regular_ro("nitro-control-rgb-helper", dir_fd=libexec_fd, allowed_uids=uids, label=str(launcher_path))
+    if libexec_fd is not None and _entry_exists(libexec_fd, launcher_path.name):
+        _, lraw = open_regular_ro(launcher_path.name, dir_fd=libexec_fd, allowed_uids=uids,
+                                  exact_mode=0o755 if verify_modes else None, label=str(launcher_path))
         found["nitro-control-rgb-helper"] = (hashlib.sha256(lraw).hexdigest(), lraw)
 
-    if polkit_fd is not None and "io.github.tobiasguta.NitroControl.rgb.policy" in os.listdir(polkit_fd):
+    if polkit_fd is not None and _entry_exists(polkit_fd, policy_path.name):
         _, praw = open_regular_ro(
-            "io.github.tobiasguta.NitroControl.rgb.policy", dir_fd=polkit_fd, allowed_uids=uids, label=str(policy_path)
+            policy_path.name, dir_fd=polkit_fd, allowed_uids=uids,
+            exact_mode=0o644 if verify_modes else None, label=str(policy_path),
         )
         found["io.github.tobiasguta.NitroControl.rgb.policy"] = (hashlib.sha256(praw).hexdigest(), praw)
 
     if pkg_fd is not None:
-        pkg_entries = set(os.listdir(pkg_fd))
         for fname in RGB_HELPER_FILES:
             fpath = pkg_dir / fname
-            if fpath.is_symlink():
-                raise ModuleStagingError(f"Refusing symlinked RGB helper file at {fpath}")
-            if fname in pkg_entries:
-                _, raw = open_regular_ro(fname, dir_fd=pkg_fd, allowed_uids=uids, label=str(fpath))
+            if _entry_exists(pkg_fd, fname):
+                _, raw = open_regular_ro(fname, dir_fd=pkg_fd, allowed_uids=uids,
+                                         exact_mode=0o644 if verify_modes else None, label=str(fpath))
                 found[f"nitro_control/{fname}"] = (hashlib.sha256(raw).hexdigest(), raw)
     return found, key_paths
 
@@ -2749,16 +2792,12 @@ def _verify_existing_rgb_helper_provenance(
 ) -> tuple[dict[str, object] | None, dict[str, list[str]], bool, dict[str, bytes]]:
     """Classify RGB helper artifacts cleanly across coherent, interrupted, modified, incomplete, and legacy states."""
     base_dir = root / "usr/local/libexec/nitro-control-rgb"
-    pkg_dir = base_dir / "nitro_control"
     man_path = base_dir / RGB_HELPER_MANIFEST
     tx_path = base_dir / RGB_HELPER_TX_FILE
 
-    if base_dir.is_symlink() or pkg_dir.is_symlink() or man_path.is_symlink() or tx_path.is_symlink():
-        raise ModuleStagingError(f"Refusing symlinked RGB helper directory or metadata under {base_dir}")
-
     found, key_paths = _read_existing_rgb_helper_files(root, libexec_fd, polkit_fd, pkg_fd, uids)
-    has_manifest = base_fd is not None and RGB_HELPER_MANIFEST in os.listdir(base_fd)
-    has_tx = base_fd is not None and RGB_HELPER_TX_FILE in os.listdir(base_fd)
+    has_manifest = base_fd is not None and _entry_exists(base_fd, RGB_HELPER_MANIFEST)
+    has_tx = base_fd is not None and _entry_exists(base_fd, RGB_HELPER_TX_FILE)
     prior_raw_map = {k: raw for k, (_, raw) in found.items()}
 
     if not found and not has_manifest and not has_tx:
@@ -2852,53 +2891,63 @@ def _verify_existing_rgb_helper_provenance(
     return None, found_hashes, False, prior_raw_map
 
 
+def _verify_rgb_helper_artifacts(
+    root: Path,
+    libexec_fd: int,
+    polkit_fd: int,
+    base_fd: int,
+    pkg_fd: int,
+    uids: set[int],
+    *,
+    verify_modes: bool = False,
+) -> dict[str, object]:
+    man_path = root / "usr/local/libexec/nitro-control-rgb" / RGB_HELPER_MANIFEST
+    _, mraw = open_regular_ro(RGB_HELPER_MANIFEST, dir_fd=base_fd, allowed_uids=uids,
+                              exact_mode=0o644, label=str(man_path))
+    manifest = _parse_rgb_helper_manifest_bytes(mraw)
+    files_map = manifest["files"]
+    assert isinstance(files_map, dict)
+    found, key_paths = _read_existing_rgb_helper_files(
+        root, libexec_fd, polkit_fd, pkg_fd, uids, verify_modes=verify_modes,
+    )
+    for key in sorted(_RGB_HELPER_EXPECTED_KEYS):
+        path = key_paths[key]
+        entry = found.get(key)
+        if entry is None:
+            raise ModuleStagingError(f"Incomplete RGB helper installation: missing {path}")
+        if entry[0] != files_map[key]:
+            raise ModuleStagingError(
+                f"RGB helper integrity mismatch at {path}; re-run sudo ./scripts/install-rgb-helper-fedora.sh"
+            )
+    return manifest
+
+
 def verify_privileged_rgb_helper(root: Path) -> None:
     """Privileged execution coherence check (call inside RGB_HELPER_LOCK before touching hardware)."""
     root = Path(root)
     uids = allowed_root_uids(root)
     libexec_fd = verify_dir_chain(root, ("usr", "local", "libexec"), allowed_uids=uids)
-    polkit_fd = verify_dir_chain(root, ("usr", "share", "polkit-1", "actions"), allowed_uids=uids)
-    base_dir = root / "usr/local/libexec/nitro-control-rgb"
-    pkg_dir = base_dir / "nitro_control"
+    libexec_dir = root / "usr/local/libexec"
+    base_dir = libexec_dir / "nitro-control-rgb"
+    polkit_fd: int | None = None
     base_fd: int | None = None
     pkg_fd: int | None = None
     try:
-        if base_dir.is_symlink() or not base_dir.exists():
-            raise ModuleStagingError("RGB helper installation metadata directory is missing or unsafe")
-        base_fd = verify_dir_chain(root, ("usr", "local", "libexec", "nitro-control-rgb"), allowed_uids=uids)
-        if pkg_dir.is_symlink() or not pkg_dir.exists():
-            raise ModuleStagingError("RGB helper package directory is missing or unsafe")
-        pkg_fd = verify_dir_chain(root, ("usr", "local", "libexec", "nitro-control-rgb", "nitro_control"), allowed_uids=uids)
-
-        tx_path = base_dir / RGB_HELPER_TX_FILE
-        man_path = base_dir / RGB_HELPER_MANIFEST
-        if tx_path.is_symlink() or RGB_HELPER_TX_FILE in os.listdir(base_fd):
+        base_fd = verify_dir_chain(libexec_dir, (base_dir.name,), allowed_uids=uids, parent_fd=libexec_fd)
+        if _entry_exists(base_fd, RGB_HELPER_TX_FILE):
             raise ModuleStagingError(
                 "Interrupted RGB helper installation detected; re-run sudo ./scripts/install-rgb-helper-fedora.sh before use"
             )
-        if man_path.is_symlink() or RGB_HELPER_MANIFEST not in os.listdir(base_fd):
-            raise ModuleStagingError(
-                "RGB helper provenance manifest is missing or unsafe; re-run sudo ./scripts/install-rgb-helper-fedora.sh"
-            )
-        _, mraw = open_regular_ro(RGB_HELPER_MANIFEST, dir_fd=base_fd, allowed_uids=uids, exact_mode=0o644, label=str(man_path))
-        manifest = _parse_rgb_helper_manifest_bytes(mraw)
-        files_map: dict[str, str] = manifest["files"]  # type: ignore[assignment]
-        found, key_paths = _read_existing_rgb_helper_files(root, libexec_fd, polkit_fd, pkg_fd, uids)
-        for key in sorted(_RGB_HELPER_EXPECTED_KEYS):
-            path = key_paths[key]
-            entry = found.get(key)
-            if entry is None:
-                raise ModuleStagingError(f"Incomplete RGB helper installation: missing {path}")
-            if entry[0] != files_map.get(key):
-                raise ModuleStagingError(
-                    f"RGB helper integrity mismatch at {path}; re-run sudo ./scripts/install-rgb-helper-fedora.sh"
-                )
+        pkg_fd = verify_dir_chain(base_dir, ("nitro_control",), allowed_uids=uids, parent_fd=base_fd)
+        polkit_fd = verify_dir_chain(root, ("usr", "share", "polkit-1", "actions"), allowed_uids=uids)
+        _verify_rgb_helper_artifacts(root, libexec_fd, polkit_fd, base_fd, pkg_fd, uids)
     finally:
         if pkg_fd is not None:
             os.close(pkg_fd)
         if base_fd is not None:
             os.close(base_fd)
-        os.close(polkit_fd)
+        if polkit_fd is not None:
+            os.close(polkit_fd)
         os.close(libexec_fd)
 
 
@@ -2936,21 +2985,20 @@ def install_rgb_helper(
         "Another RGB helper operation is active; retry after it finishes.",
     ):
         libexec_fd = verify_dir_chain(root, ("usr", "local", "libexec"), create_from_index=1, new_dir_mode=0o755, allowed_uids=uids)
-        polkit_fd = verify_dir_chain(root, ("usr", "share", "polkit-1", "actions"), create_from_index=1, new_dir_mode=0o755, allowed_uids=uids)
-        base_dir = root / "usr/local/libexec/nitro-control-rgb"
+        libexec_dir = root / "usr/local/libexec"
+        base_dir = libexec_dir / "nitro-control-rgb"
         pkg_dir = base_dir / "nitro_control"
-        if base_dir.is_symlink() or pkg_dir.is_symlink():
-            os.close(libexec_fd)
-            os.close(polkit_fd)
-            raise ModuleStagingError(f"Refusing symlinked RGB helper directory under {base_dir}")
 
+        polkit_fd: int | None = None
         base_fd: int | None = None
         pkg_fd: int | None = None
         try:
-            if base_dir.exists():
-                base_fd = verify_dir_chain(root, ("usr", "local", "libexec", "nitro-control-rgb"), allowed_uids=uids)
-            if pkg_dir.exists():
-                pkg_fd = verify_dir_chain(root, ("usr", "local", "libexec", "nitro-control-rgb", "nitro_control"), allowed_uids=uids)
+            polkit_fd = verify_dir_chain(root, ("usr", "share", "polkit-1", "actions"),
+                                         create_from_index=1, new_dir_mode=0o755, allowed_uids=uids)
+            if _entry_exists(libexec_fd, base_dir.name):
+                base_fd = verify_dir_chain(libexec_dir, (base_dir.name,), allowed_uids=uids, parent_fd=libexec_fd)
+                if _entry_exists(base_fd, pkg_dir.name):
+                    pkg_fd = verify_dir_chain(base_dir, (pkg_dir.name,), allowed_uids=uids, parent_fd=base_fd)
 
             _, known_files, _, prior_raw_map = _verify_existing_rgb_helper_provenance(
                 root,
@@ -2963,17 +3011,14 @@ def install_rgb_helper(
                 for_uninstall=False,
             )
 
+            if base_fd is None:
+                base_fd = verify_dir_chain(libexec_dir, (base_dir.name,), create_from_index=0,
+                                           allowed_uids=uids, parent_fd=libexec_fd)
             if pkg_fd is None:
-                if base_fd is not None:
-                    os.close(base_fd)
-                    base_fd = None
                 pkg_fd = verify_dir_chain(
-                    root, ("usr", "local", "libexec", "nitro-control-rgb", "nitro_control"),
-                    create_from_index=3, new_dir_mode=0o755, allowed_uids=uids,
+                    base_dir, (pkg_dir.name,), create_from_index=0, allowed_uids=uids, parent_fd=base_fd,
                 )
-                base_fd = verify_dir_chain(root, ("usr", "local", "libexec", "nitro-control-rgb"), allowed_uids=uids)
 
-            assert base_fd is not None
             tx_obj = {
                 "managed_by": MANAGED_BY,
                 "schema_version": SCHEMA_VERSION,
@@ -2982,10 +3027,11 @@ def install_rgb_helper(
                 "known_files": known_files,
                 "target_files": target_files,
             }
+            tx_bytes = (json.dumps(tx_obj, sort_keys=True, indent=2) + "\n").encode("utf-8")
             _atomic_write_in_dir(
                 base_fd,
                 RGB_HELPER_TX_FILE,
-                (json.dumps(tx_obj, sort_keys=True, indent=2) + "\n").encode("utf-8"),
+                tx_bytes,
                 0o644,
                 uids=uids,
                 label=str(base_dir / RGB_HELPER_TX_FILE),
@@ -3032,10 +3078,6 @@ def install_rgb_helper(
             if on_stage is not None:
                 on_stage("after_manifest")
 
-            if RGB_HELPER_TX_FILE in os.listdir(base_fd):
-                os.unlink(RGB_HELPER_TX_FILE, dir_fd=base_fd)
-                _fsync_dir(base_fd)
-
             if shutil.which("restorecon"):
                 runner([
                     "restorecon", "-F",
@@ -3044,6 +3086,24 @@ def install_rgb_helper(
                     str(base_dir / RGB_HELPER_MANIFEST),
                     *(str(pkg_dir / fname) for fname in RGB_HELPER_FILES),
                 ])
+
+            # Keep the transaction visible until the exact manifest and payload are verified.
+            installed_manifest = _verify_rgb_helper_artifacts(
+                root, libexec_fd, polkit_fd, base_fd, pkg_fd, uids, verify_modes=True,
+            )
+            if installed_manifest != manifest_obj:
+                raise ModuleStagingError("Published RGB helper manifest differs from the installer target")
+            _, installed_tx = open_regular_ro(
+                RGB_HELPER_TX_FILE, dir_fd=base_fd, allowed_uids=uids,
+                exact_mode=0o644, label=str(base_dir / RGB_HELPER_TX_FILE),
+            )
+            if installed_tx != tx_bytes:
+                raise ModuleStagingError("RGB helper transaction marker changed during installation")
+            _remove_verified_entry(base_fd, RGB_HELPER_TX_FILE)
+            try:
+                os.fsync(base_fd)
+            except OSError as exc:
+                raise ModuleStagingError(f"Cannot sync RGB helper transaction finalization: {exc}") from exc
 
             return {
                 "launcher": str(launcher_path),
@@ -3059,7 +3119,8 @@ def install_rgb_helper(
             if base_fd is not None:
                 os.close(base_fd)
             os.close(libexec_fd)
-            os.close(polkit_fd)
+            if polkit_fd is not None:
+                os.close(polkit_fd)
 
 
 def uninstall_rgb_helper(
@@ -3085,23 +3146,19 @@ def uninstall_rgb_helper(
         policy_path = polkit_dir / "io.github.tobiasguta.NitroControl.rgb.policy"
         man_path = base_dir / RGB_HELPER_MANIFEST
 
-        if (
-            launcher_path.is_symlink()
-            or policy_path.is_symlink()
-            or base_dir.is_symlink()
-            or pkg_dir.is_symlink()
-            or man_path.is_symlink()
-        ):
-            raise ModuleStagingError("Refusing symlinked RGB helper path during removal")
-
-        libexec_fd = verify_dir_chain(root, ("usr", "local", "libexec"), allowed_uids=uids) if libexec_dir.exists() else None
-        polkit_fd = verify_dir_chain(root, ("usr", "share", "polkit-1", "actions"), allowed_uids=uids) if polkit_dir.exists() else None
-        base_fd = verify_dir_chain(root, ("usr", "local", "libexec", "nitro-control-rgb"), allowed_uids=uids) if base_dir.exists() else None
-        pkg_fd = verify_dir_chain(root, ("usr", "local", "libexec", "nitro-control-rgb", "nitro_control"), allowed_uids=uids) if pkg_dir.exists() else None
-
+        libexec_fd: int | None = None
+        polkit_fd: int | None = None
+        base_fd: int | None = None
+        pkg_fd: int | None = None
         try:
-            if libexec_fd is None and polkit_fd is None and base_fd is None and pkg_fd is None:
-                return {"removed": []}
+            if libexec_dir.exists() or libexec_dir.is_symlink():
+                libexec_fd = verify_dir_chain(root, ("usr", "local", "libexec"), allowed_uids=uids)
+                if _entry_exists(libexec_fd, base_dir.name):
+                    base_fd = verify_dir_chain(libexec_dir, (base_dir.name,), allowed_uids=uids, parent_fd=libexec_fd)
+                    if _entry_exists(base_fd, pkg_dir.name):
+                        pkg_fd = verify_dir_chain(base_dir, (pkg_dir.name,), allowed_uids=uids, parent_fd=base_fd)
+            if polkit_dir.exists() or polkit_dir.is_symlink():
+                polkit_fd = verify_dir_chain(root, ("usr", "share", "polkit-1", "actions"), allowed_uids=uids)
 
             manifest, _, had_tx, prior_raw_map = _verify_existing_rgb_helper_provenance(
                 root,
@@ -3114,27 +3171,19 @@ def uninstall_rgb_helper(
                 for_uninstall=True,
             )
 
-            if libexec_fd is not None and "nitro-control-rgb-helper" in os.listdir(libexec_fd):
-                os.unlink("nitro-control-rgb-helper", dir_fd=libexec_fd)
+            if libexec_fd is not None and launcher_path.name in prior_raw_map:
+                _remove_verified_entry(libexec_fd, launcher_path.name)
                 _fsync_dir(libexec_fd)
                 removed_paths.append(str(launcher_path))
-            if polkit_fd is not None and "io.github.tobiasguta.NitroControl.rgb.policy" in os.listdir(polkit_fd):
-                os.unlink("io.github.tobiasguta.NitroControl.rgb.policy", dir_fd=polkit_fd)
+            if polkit_fd is not None and policy_path.name in prior_raw_map:
+                _remove_verified_entry(polkit_fd, policy_path.name)
                 _fsync_dir(polkit_fd)
                 removed_paths.append(str(policy_path))
 
             if pkg_fd is not None:
-                tracked_py = list(RGB_HELPER_FILES)
-                if manifest is not None and isinstance(manifest.get("files"), dict):
-                    for key in manifest["files"]:
-                        if isinstance(key, str) and key.startswith("nitro_control/"):
-                            fname = key.split("/", 1)[1]
-                            if "/" not in fname and fname not in tracked_py:
-                                tracked_py.append(fname)
-                for fname in tracked_py:
-                    if fname in os.listdir(pkg_fd):
-                        open_regular_ro(fname, dir_fd=pkg_fd, allowed_uids=uids, label=str(pkg_dir / fname))
-                        os.unlink(fname, dir_fd=pkg_fd)
+                for fname in RGB_HELPER_FILES:
+                    if f"nitro_control/{fname}" in prior_raw_map:
+                        _remove_verified_entry(pkg_fd, fname)
                         removed_paths.append(str(pkg_dir / fname))
                 _fsync_dir(pkg_fd)
                 known_py_sources = {
@@ -3147,13 +3196,17 @@ def uninstall_rgb_helper(
                 )
 
             if base_fd is not None:
-                if RGB_HELPER_MANIFEST in os.listdir(base_fd):
-                    os.unlink(RGB_HELPER_MANIFEST, dir_fd=base_fd)
+                if manifest is not None:
+                    _remove_verified_entry(base_fd, RGB_HELPER_MANIFEST)
                     removed_paths.append(str(man_path))
-                if had_tx and RGB_HELPER_TX_FILE in os.listdir(base_fd):
-                    os.unlink(RGB_HELPER_TX_FILE, dir_fd=base_fd)
+                if had_tx:
+                    _remove_verified_entry(base_fd, RGB_HELPER_TX_FILE)
                     removed_paths.append(str(base_dir / RGB_HELPER_TX_FILE))
                 _fsync_dir(base_fd)
+                if pkg_fd is not None:
+                    _remove_empty_dir(base_fd, pkg_dir.name)
+                assert libexec_fd is not None
+                _remove_empty_dir(libexec_fd, base_dir.name)
         finally:
             if pkg_fd is not None:
                 os.close(pkg_fd)
@@ -3164,12 +3217,6 @@ def uninstall_rgb_helper(
             if libexec_fd is not None:
                 os.close(libexec_fd)
 
-        for d in (pkg_dir, base_dir):
-            try:
-                if d.exists() and not d.is_symlink():
-                    d.rmdir()
-            except OSError:
-                pass
         return {"removed": removed_paths}
 
 
