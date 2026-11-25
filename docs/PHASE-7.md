@@ -312,3 +312,13 @@ f22488020008c4a05f3073e0668cc7dc308cc4c38a7f3dc92f61e0f56191176f  nitro_rgb_enab
 6c3defc83ebd33b326b228a44de0a5bcf1322568058487d2e636cdb9aa6e1afb  nitro_rgb_enable_poc.mod.o
 6b4ebcfed56def9f98e3fe1d3da904b3f5f903c1097d8b24d9d743c47ebd298a  nitro_rgb_enable_poc.o
 ```
+
+## Hosted CI fixture correction
+
+The [hosted qualification run](https://github.com/tobiasGuta/Nitro-Control/actions/runs/45689480916) for `release/0.4.0-qualification` at `bf4dcf5ebf2e84685c2f162eddfee13b04a6b7aa` passed six of seven jobs, including all five Python compatibility jobs and desktop-and-native. The lifecycle job ran 31 tests and failed on the absent first-use lock file. Its original assertion did not report the first subprocess's exit status or output.
+
+The asynchronous first installer had its own Bubblewrap mount list, missing the shared builder's Ubuntu multiarch and Python standard-library mounts. In a disposable probe using Ubuntu Base 24.04.4's actual Bash binary and loader symlink, that mount list failed to start Bash with `execvp /usr/bin/bash: No such file or directory`. Adding the shared multiarch bind made the same command succeed. This reproduces a failure before the installer can create its lock and explains the hosted assertion. The original hosted log captured the assertion rather than the child error.
+
+Both invocations now use the shared Bubblewrap builder. Mocked `depmod` signals readiness and holds the first installer until the parent releases it after the contender returns. The test retains the first-use assertion, requires the contender's lock-conflict response, and compares the inode while the first installer holds the lock and again after it succeeds. The first child's startup failure now reports exit status, stdout, and stderr. The test terminates and reaps the child on failed assertions.
+
+The local mandatory lifecycle suite passed all 31 tests and the full strict regression run passed all 263 tests without skips. A fault injection delayed the contender beyond the old 0.6-second window, and the inode test still passed. A separate early-exit injection confirmed that the diagnostics include the child status and error output. The correction changes the test fixture, with no production changes. **Hosted verification of this correction is pending.**

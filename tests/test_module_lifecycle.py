@@ -1884,10 +1884,12 @@ class IsolatedModuleLifecycleTests(unittest.TestCase):
                 raise unittest.SkipTest(msg)
 
     @staticmethod
-    def _run_bwrap_cmd(root: Path, argv: list[str], *, env: dict[str, str] | None = None,
-                       timeout: int = 20) -> subprocess.CompletedProcess[str]:
+    def _bwrap_invocation(
+        root: Path, argv: list[str], *, env: dict[str, str] | None = None,
+    ) -> tuple[list[str], dict[str, str]]:
         cmd = [
             "bwrap",
+            "--die-with-parent",
             "--unshare-user",
             "--uid", "0",
             "--gid", "0",
@@ -1911,7 +1913,13 @@ class IsolatedModuleLifecycleTests(unittest.TestCase):
         }
         if env:
             run_env.update(env)
-        return subprocess.run(cmd + argv, env=run_env, capture_output=True, text=True,
+        return cmd + argv, run_env
+
+    @classmethod
+    def _run_bwrap_cmd(cls, root: Path, argv: list[str], *, env: dict[str, str] | None = None,
+                       timeout: int = 20) -> subprocess.CompletedProcess[str]:
+        cmd, run_env = cls._bwrap_invocation(root, argv, env=env)
+        return subprocess.run(cmd, env=run_env, capture_output=True, text=True,
                               timeout=timeout, check=False)
 
     def _setup_root(self) -> Path:
@@ -2139,8 +2147,8 @@ img="${1:-}"
         self.assertFalse((root / "run/nitro-control").exists())
         _make_dummy_ko(root / "src/nitro_rgb_enable_poc.ko", "nitro_rgb_enable_poc", KVER_CUR)
 
-        # Make depmod pause briefly inside the locked install window so a concurrent shell
-        # installer racing on first initialization MUST observe the active lock instead of replacing inode.
+        # Gate the first depmod call while the installer owns the new lock.
+        # The contender must finish before the parent releases that gate.
         leg_ko = _make_dummy_ko(
             root / f"usr/lib/modules/{KVER_OLD}/extra/nitro-control/nitro_rgb_enable_poc.ko",
             "nitro_rgb_enable_poc", KVER_OLD,
@@ -2149,39 +2157,53 @@ img="${1:-}"
         _write_manifest(leg_ko, "native-rgb", "nitro_rgb_enable_poc", KVER_OLD, hashlib.sha256(leg_ko.read_bytes()).hexdigest())
         orig_depmod = (root / "mockbin/depmod").read_text()
         (root / "mockbin/depmod").write_text(
-            "#!/usr/bin/bash\n: > /tmp/mock_state/lock_race.entered\nsleep 0.6\n" + orig_depmod.split("\n", 1)[1],
+            """#!/usr/bin/bash
+set -euo pipefail
+if [[ ! -e /tmp/mock_state/lock_race.entered ]]; then
+    : > /tmp/mock_state/lock_race.entered
+    if ! IFS= read -r -t 45 release || [[ "$release" != continue ]]; then
+        echo "depmod fixture did not receive the release signal" >&2
+        exit 1
+    fi
+fi
+""" + orig_depmod.split("\n", 1)[1],
             encoding="utf-8",
         )
         (root / "mockbin/depmod").chmod(0o755)
 
-        p1 = subprocess.Popen(
-            [
-                "bwrap", "--unshare-user", "--uid", "0", "--gid", "0",
-                "--bind", str(root), "/", "--dev", "/dev",
-                "--ro-bind", str(REPO), "/repo",
-                "--ro-bind", "/usr/bin", "/usr/bin", "--ro-bind", "/usr/sbin", "/usr/sbin",
-                *(["--ro-bind", "/usr/lib64", "/usr/lib64", "--symlink", "usr/lib64", "/lib64"] if Path("/usr/lib64").is_dir() else []),
-                "--symlink", "usr/bin", "/bin", "--symlink", "usr/sbin", "/sbin",
-                "/usr/bin/bash", "/repo/scripts/install-native-rgb-fedora.sh", "/src/nitro_rgb_enable_poc.ko",
-            ],
-            env={"PATH": "/mockbin:/usr/bin:/usr/sbin", "HOME": "/root", "LC_ALL": "C"},
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-        )
-        # Wait until p1 is actively inside depmod (holding the newly initialized native-rgb.lock).
-        for _ in range(50):
-            if (root / "tmp/mock_state/lock_race.entered").exists():
-                break
-            threading.Event().wait(0.05)
-        lock_file = root / "run/nitro-control/native-rgb.lock"
-        self.assertTrue(lock_file.is_file())
-        ino_during_p1 = lock_file.stat().st_ino
+        installer = ["/usr/bin/bash", "/repo/scripts/install-native-rgb-fedora.sh", "/src/nitro_rgb_enable_poc.ko"]
+        cmd, run_env = self._bwrap_invocation(root, installer)
+        p1 = subprocess.Popen(cmd, env=run_env, stdin=subprocess.PIPE,
+                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            ready = root / "tmp/mock_state/lock_race.entered"
+            deadline = time.monotonic() + 15
+            while not ready.exists():
+                if p1.poll() is not None or time.monotonic() >= deadline:
+                    if p1.poll() is None:
+                        p1.kill()
+                    out, err = p1.communicate(timeout=5)
+                    self.fail(f"First installer never reached the depmod gate (exit {p1.returncode}).\n"
+                              f"stdout:\n{out}\nstderr:\n{err}")
+                time.sleep(0.02)
 
-        p2 = self._run_script(root, "scripts/install-native-rgb-fedora.sh", "/src/nitro_rgb_enable_poc.ko")
-        p1_out, p1_err = p1.communicate(timeout=20)
-        self.assertEqual(p1.returncode, 0, p1_err + p1_out)
-        self.assertNotEqual(p2.returncode, 0)
-        self.assertIn("Another native RGB operation is in progress", p2.stderr)
-        self.assertEqual(lock_file.stat().st_ino, ino_during_p1)
+            lock_file = root / "run/nitro-control/native-rgb.lock"
+            self.assertTrue(lock_file.is_file())
+            ino_during_p1 = lock_file.stat().st_ino
+
+            p2 = self._run_bwrap_cmd(root, installer)
+            self.assertNotEqual(p2.returncode, 0, p2.stdout + p2.stderr)
+            self.assertIn("Another native RGB operation is in progress", p2.stderr, p2.stdout + p2.stderr)
+            self.assertIsNone(p1.poll(), "First installer exited before the release signal")
+            self.assertEqual(lock_file.stat().st_ino, ino_during_p1)
+
+            p1_out, p1_err = p1.communicate(input="continue\n", timeout=20)
+            self.assertEqual(p1.returncode, 0, p1_err + p1_out)
+            self.assertEqual(lock_file.stat().st_ino, ino_during_p1)
+        finally:
+            if p1.poll() is None:
+                p1.kill()
+            p1.communicate(timeout=5)
 
     def test_legacy_driver_migration_requires_adopt_legacy_then_clears_aliases_and_preserves_foreign(self):
         root = self._setup_root()
