@@ -1,6 +1,6 @@
 # NC-Q02 RGB helper transaction finalization
 
-Physical qualification of `release/0.4.0-qualification` is pending independent review of this correction. The reproduced baseline is `0eb74cceba1e2791bc14632d7f8273475f5caa71`.
+The reproduced baseline is `0eb74cceba1e2791bc14632d7f8273475f5caa71`. The corrected commit `1d9f4274b76c8d05d7856a77b540ebd665ca7cb4` passed hosted CI, and the operator verified interrupted-helper recovery on the reference hardware. [Hosted run](https://github.com/tobiasGuta/Nitro-Control/actions/runs/45698419664) · [Physical qualification results](HARDWARE-QUALIFICATION-RESULTS.md)
 
 ## Evidence
 
@@ -46,9 +46,9 @@ The documented direct invocations of the native RGB installer and uninstaller, t
 - Python syntax passed for 51 files. Bash syntax passed for 16 scripts. Targeted Ruff lint, Demo JSON, desktop-entry validation, isolated preview.4 upgrade and rollback smoke, and `git diff --check` passed. ShellCheck was unavailable locally. The five changed shell scripts have mode-only diffs.
 - SHA-256 verification passed for all 15 preexisting untracked kernel build artifacts.
 
-The correction covers coherent on-disk installation and lookup behavior. It does not measure SELinux or Polkit behavior on the physical host, settings application, stock-driver WMI behavior, or crash durability after a reported filesystem sync failure. Discovery scans still depend on the filesystem to return unknown names. The lock coordinates participating Nitro Control processes. Hosted CI and physical qualification of this correction remain pending.
+These offline checks cover on-disk installation and lookup behavior. Discovery scans still depend on the filesystem to return unknown names. The lock coordinates participating Nitro Control processes. See the qualification results above for subsequent hosted and physical evidence and its scope.
 
-## Proposed supervised recovery
+## Supervised recovery procedure
 
 1. After independent acceptance, record the existing marker, manifest, installed hashes, ownership and modes, installer log, and unprivileged capability result. Compare them against the qualified baseline and preserve the interruption evidence. Stop if provenance or artifact hashes conflict.
 2. Have the supervisor rerun the reviewed corrected RGB helper installer through its normal authorized installation path while other helper operations are idle. A verified transaction with a completed manifest can recover through the existing installer lock and transaction checks. Use `--adopt-legacy` only if a separately inspected legacy installation requires it. Leave the marker in place for the installer to verify and clear.

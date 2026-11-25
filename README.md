@@ -4,7 +4,7 @@
 
 Version 0.4.0-preview.5 **(source preview)** • optional AN515-58 fan control and experimental Acer WMI RGB • Python 3.11+ • MIT license
 
-[Release notes for v0.4.0-preview.5](docs/RELEASE-v0.4.0-preview.5.md)
+[Release notes for v0.4.0-preview.5](docs/RELEASE-v0.4.0-preview.5.md) · [AN515-58 qualification results](docs/HARDWARE-QUALIFICATION-RESULTS.md)
 
 Nitro Control is a small Python + GTK4 + Libadwaita application using native Linux APIs. Desktop power-mode switching uses Fedora’s standard D-Bus service. v0.3 adds optional, explicitly authorized physical RGB support **only when a supported kernel sysfs endpoint already exists**. The GUI never runs as root or directly calls WMI. An optional, separately installed native-RGB development backend can execute a root-owned, one-shot WMI kernel module while keeping stock `acer_wmi` loaded. It never writes fan PWM.
 
@@ -221,7 +221,7 @@ python3 -m compileall -q nitro_control scripts tests
 python3 -m nitro_control --demo --once
 ```
 
-Tests use a disposable simulated sysfs tree shaped like the AN515-58, plus an injected fake power-profile service. They cover Acer fans and temperatures, NVIDIA CLI parsing and failures, firmware choices, WMI suffixes, driver binding, read-only monitoring, allowed desktop modes, denied changes, and verification of service-reported results. The desktop release gate runs real GTK4 and GTK3 widgets in private D-Bus sessions with mock hardware. Separate gates exercise the C harness, disposable module builds, and isolated module lifecycle. A live GNOME tray, PolicyKit prompts, and physical hardware behavior require the [manual AN515-58 checklist](docs/HARDWARE-QUALIFICATION.md). See the [Phase 7 qualification report](docs/PHASE-7.md) for results and release status.
+Tests use a disposable simulated sysfs tree shaped like the AN515-58, plus an injected fake power-profile service. They cover Acer fans and temperatures, NVIDIA CLI parsing and failures, firmware choices, WMI suffixes, driver binding, read-only monitoring, allowed desktop modes, denied changes, and verification of service-reported results. The desktop release gate runs real GTK4 and GTK3 widgets in private D-Bus sessions with mock hardware. Separate gates exercise the C harness, disposable module builds, and isolated module lifecycle. The [Phase 7 audit](docs/PHASE-7.md) records the engineering checks. The [physical qualification results](docs/HARDWARE-QUALIFICATION-RESULTS.md) cover the Fedora 45 reference run and its limits. Use the [manual AN515-58 checklist](docs/HARDWARE-QUALIFICATION.md) for further hardware testing.
 
 ## Safety and privacy
 

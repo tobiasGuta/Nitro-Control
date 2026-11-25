@@ -1,6 +1,6 @@
 # Manual qualification on Acer Nitro AN515-58 and Fedora
 
-**Status — not run in Phase 7.** Earlier owner observations are archived in the [native RGB guide](NATIVE-RGB.md) and the [RGB incident record](RGB-INCIDENT-2026-11.md). Record new results against the exact candidate source and binaries.
+The [preview.5 qualification results](HARDWARE-QUALIFICATION-RESULTS.md) record the reference run, its deferred checks, and the Conditional GO. Use this checklist for subsequent runs and record results against the exact candidate source and binaries. Earlier owner observations are archived in the [native RGB guide](NATIVE-RGB.md) and the [RGB incident record](RGB-INCIDENT-2026-11.md).
 
 ## Session record and common prerequisites
 

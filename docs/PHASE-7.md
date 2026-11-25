@@ -5,9 +5,9 @@
 | Qualification | Result |
 | --- | --- |
 | Offline qualification | **Passed** for the reviewed working-tree candidate. The strict local suite ran with the GTK, isolated-root, and native build coverage available. |
-| Hosted CI qualification | **Pending.** The workflow, pins, and gate behavior were checked locally. No GitHub-hosted run of the candidate was performed. |
-| Physical hardware qualification | **Pending.** The [AN515-58 checklist](HARDWARE-QUALIFICATION.md) was prepared and deliberately left unexecuted. |
-| Release readiness | **Hold publication.** The source is suitable for hosted CI and supervised candidate qualification. The final source revision, hosted gate results, and physical sign-off are still required before a release. |
+| Hosted CI qualification | **Passed.** All seven jobs passed for `1d9f4274b76c8d05d7856a77b540ebd665ca7cb4`. [Hosted run](https://github.com/tobiasGuta/Nitro-Control/actions/runs/45698419664) |
+| Physical hardware qualification | **Completed on the reference AN515-58**, with deferred items recorded. [Qualification results](HARDWARE-QUALIFICATION-RESULTS.md) |
+| Release readiness | **Conditional GO** for the source preview, subject to the documented limits and approval of the publication revision. [Release notes](RELEASE-v0.4.0-preview.5.md) |
 
 ## Final baseline
 
@@ -26,6 +26,8 @@ The supplied independent Phase 6 R1 evidence reported 253 counted tests, 249 pas
 - Documentation now distinguishes hosted GTK fixture coverage from live GNOME and hardware testing. The current keyboard guide also distinguishes legacy Static payload compatibility from access to the migrated private native module location. Native install and recovery instructions, tray opt-in, user deployment rollback and uninstall guarantees, and hardware scope were reviewed without rewriting historical releases.
 
 ## Original audit closure matrix
+
+The rows below record the Phase 7 offline assessment and its outstanding work at the time. Subsequent hosted and physical results are recorded in the verdict above and the qualification results.
 
 | Finding and original concern | Current implementation and independently exercised evidence | Remaining limitation | Disposition |
 | --- | --- | --- | --- |
@@ -76,7 +78,7 @@ The Phase 7 product changes are limited to recognizing missing PyGObject API at 
 
 ## Remaining limitations
 
-Hosted CI and target-system qualification are pending. In particular, real fan thermal response, keyboard appearance and firmware cleanup, dGPU wake behavior, live GNOME display and PolicyKit, and real suspend/resume remain outside the offline result. The qualification checklist defines the required target evidence. Keep historical observations separate from candidate sign-off.
+The Phase 7 offline result is separate from the later reference run. See the [qualification results](HARDWARE-QUALIFICATION-RESULTS.md) for physical fan response, lighting and cleanup, live GNOME, PolicyKit cancellation, suspend/resume, and the deferred NVIDIA runtime power check.
 
 ## Baseline records
 
@@ -321,4 +323,4 @@ The asynchronous first installer had its own Bubblewrap mount list, missing the 
 
 Both invocations now use the shared Bubblewrap builder. Mocked `depmod` signals readiness and holds the first installer until the parent releases it after the contender returns. The test retains the first-use assertion, requires the contender's lock-conflict response, and compares the inode while the first installer holds the lock and again after it succeeds. The first child's startup failure now reports exit status, stdout, and stderr. The test terminates and reaps the child on failed assertions.
 
-The local mandatory lifecycle suite passed all 31 tests and the full strict regression run passed all 263 tests without skips. A fault injection delayed the contender beyond the old 0.6-second window, and the inode test still passed. A separate early-exit injection confirmed that the diagnostics include the child status and error output. The correction changes the test fixture, with no production changes. **Hosted verification of this correction is pending.**
+The local mandatory lifecycle suite passed all 31 tests and the full strict regression run passed all 263 tests without skips. A fault injection delayed the contender beyond the old 0.6-second window, and the inode test still passed. A separate early-exit injection confirmed that the diagnostics include the child status and error output. The correction changes the test fixture, with no production changes. The corrected lifecycle gate subsequently passed on the [qualified commit's hosted run](https://github.com/tobiasGuta/Nitro-Control/actions/runs/45698419664).
